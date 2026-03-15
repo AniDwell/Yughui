@@ -4,7 +4,7 @@
     <meta name="7c5148e29f17b24d40451451b4e24dc5ee9366b8" content="7c5148e29f17b24d40451451b4e24dc5ee9366b8" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AniPlay Premium Player - Auto Next</title>
+    <title>AniPlay Premium Player - Persistent Skip</title>
     <meta name="6a97888e-site-verification" content="5b1ffc5bd14f3890ba06dbc3b8ddf76d">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
@@ -25,7 +25,7 @@
         .gesture-info { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); background: rgba(10, 10, 10, 0.9); padding: 12px 24px; border-radius: 30px; color: white; font-weight: bold; font-size: 18px; display: none; z-index: 20; pointer-events: none; backdrop-filter: blur(4px); border: 1px solid rgba(255, 255, 255, 0.2); }
         .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: space-between; z-index: 10; transition: opacity 0.3s ease; background: transparent; opacity: 1; pointer-events: none; }
         .ui-layer.hidden { opacity: 0; }
-        .top-bar, .bottom-area, .center-controls, .skip-rect { pointer-events: auto; }
+        .top-bar, .bottom-area, .center-controls { pointer-events: auto; }
         .top-gradient { position: absolute; top: 0; width: 100%; height: 150px; background: linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, transparent 100%); pointer-events: none; z-index: -1; }
         .bottom-gradient { position: absolute; bottom: 0; width: 100%; height: 150px; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, transparent 100%); pointer-events: none; z-index: -1; }
         .icon-btn { background: transparent; border: none; padding: 0; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: transform 0.2s; opacity: 0.9; }
@@ -52,8 +52,11 @@
         @keyframes floatFwd { 0% { opacity: 1; transform: translate(0, -50%); } 100% { opacity: 0; transform: translate(40px, -50%); } }
         @keyframes floatBwd { 0% { opacity: 1; transform: translate(0, -50%); } 100% { opacity: 0; transform: translate(-40px, -50%); } }
         .bottom-area { padding: 0 24px 20px 24px; display: flex; flex-direction: column; gap: 15px; position: relative; }
-        .skip-rect { position: absolute; right: 24px; bottom: 85px; background: rgba(20, 20, 20, 0.85); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: none; z-index: 20; transition: background 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        /* Skip Rect is now decoupled from ui-layer opacity */
+        .skip-rect { position: absolute; right: 24px; bottom: 85px; background: rgba(20, 20, 20, 0.85); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; display: none; z-index: 45; transition: background 0.2s; text-transform: uppercase; letter-spacing: 0.5px; pointer-events: auto; }
         .skip-rect:hover { background: rgba(50, 50, 50, 0.9); }
+        
         .bottom-tools { display: flex; justify-content: space-between; align-items: center; padding-bottom: 5px; }
         .tools-group { display: flex; align-items: center; gap: 24px; }
         .bot-icon { width: 24px; height: 24px; }
@@ -69,6 +72,7 @@
         .marker { position: absolute; height: 100%; top: 0; pointer-events: none; }
         .marker-ad { background: var(--ad-color); width: 4px; z-index: 2; }
         .time-preview { position: absolute; bottom: 20px; left: 0; transform: translateX(-50%); background: rgba(20, 20, 20, 0.95); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; pointer-events: none; display: none; white-space: nowrap; border: 1px solid rgba(255,255,255,0.2); z-index: 25; }
+        
         .player-wrapper.locked .top-bar, .player-wrapper.locked .center-controls, .player-wrapper.locked .progress-row, .player-wrapper.locked .tools-right, .player-wrapper.locked .scale-btn, .player-wrapper.locked .speed-text, .player-wrapper.locked .skip-rect { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
         .player-wrapper.locked .gesture-zone { display: none; }
         .ad-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.98); z-index: 50; display: none; flex-direction: column; justify-content: center; align-items: center; color: var(--ad-color); }
@@ -132,7 +136,6 @@
                 <div class="float-text" id="floatRightTxt" style="left: 100%; margin-left: 15px;">+10s</div>
             </div>
         </div>
-        <button class="skip-rect" id="skipPopup">Skip Intro</button>
 
         <div class="bottom-area">
             <div class="bottom-tools">
@@ -160,6 +163,8 @@
             </div>
         </div>
     </div>
+    
+    <button class="skip-rect" id="skipPopup">Skip Intro</button>
 
     <div class="bottom-sheet" id="qualitySheet"><div class="bs-header">Video Quality</div><div class="bs-list" id="qualityList"></div></div>
     <div class="bottom-sheet" id="subSheet">
@@ -187,11 +192,9 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-    // Initialize Firebase ONLY ONCE directly for DB access
     const videoApp = initializeApp({ apiKey: "AIzaSyAPLj8br4ZbM0OSRCQ80GNqyjXZ6fRAKOA", authDomain: "wuhq8q8q.firebaseapp.com", projectId: "wuhq8q8q", storageBucket: "wuhq8q8q.firebasestorage.app" }, "videoApp");
     const videoDb = getFirestore(videoApp);
 
-    // Get URL Parameters
     const params = new URLSearchParams(window.location.search);
     const seriesId = params.get('seriesId');
     const epId = params.get('epId');
@@ -233,7 +236,6 @@
         } catch(e) {}
     }
 
-    // MAIN LOAD FUNCTION - Called directly, no waiting for Auth
     async function loadVideo() {
         if(!seriesId || !epId) { 
             document.getElementById('tTitle').innerText = "URL ERROR: IDs Missing"; 
@@ -318,7 +320,6 @@
         }
     }
 
-    // Call it immediately
     loadVideo();
 
     playPauseBtn.addEventListener('click', (e) => { e.stopPropagation(); setupAudio(); video.paused ? video.play() : video.pause(); });
@@ -406,19 +407,18 @@
             skipPopup.style.display = 'block'; 
             skipPopup.innerText = btnText;
             
-            // Button Click Logic
+            // Execute on tap and hide immediately
             skipPopup.onclick = async (e) => { 
                 e.stopPropagation(); 
-                skipPopup.style.display = 'none'; 
+                skipPopup.style.display = 'none'; // Hide the button instantly
                 
                 if(isNextEpisode) {
                     skipPopup.innerText = "Loading...";
-                    skipPopup.style.display = 'block';
+                    skipPopup.style.display = 'block'; // Show it back as "Loading"
                     try {
                         const currentOrder = videoData.orderIndex || 0;
                         const epRef = collection(videoDb, "series", seriesId, "episodes");
                         
-                        // Query for next episode based on orderIndex
                         const q = query(epRef, where("orderIndex", ">", currentOrder), orderBy("orderIndex", "asc"), limit(1));
                         const querySnapshot = await getDocs(q);
                         
@@ -440,6 +440,7 @@
                 }
             }; 
         } else {
+            // Hide automatically if the timestamp range has passed
             skipPopup.style.display = 'none';
         }
     });
@@ -454,7 +455,10 @@
     wrap.addEventListener('click', (e) => {
         const aSheet = document.querySelector('.bottom-sheet.active');
         if (aSheet && !e.target.closest('.bottom-sheet')) { if(e.target.closest('.tr-icon') || e.target.closest('.hd-icon') || e.target.closest('.speed-text')) return; closeAllSheets(); showUI(); return; }
-        if(e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.skip-rect') || e.target.closest('.speed-text') || e.target.closest('.hd-icon')) { showUI(); return; }
+        // Let the skip button handle its own clicks without bringing up the UI layer
+        if(e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.speed-text') || e.target.closest('.hd-icon')) { showUI(); return; }
+        if(e.target.closest('.skip-rect')) return; // Do nothing to UI layer on skip tap
+        
         if(isUiVisible) hideUI(); else showUI();
     });
 
