@@ -4,7 +4,7 @@
     <meta name="7c5148e29f17b24d40451451b4e24dc5ee9366b8" content="7c5148e29f17b24d40451451b4e24dc5ee9366b8" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AniPlay Premium Player - Smart Skip</title>
+    <title>AniPlay Premium Player - Smart HLS</title>
     <meta name="6a97888e-site-verification" content="5b1ffc5bd14f3890ba06dbc3b8ddf76d">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
@@ -252,49 +252,80 @@
 
             if(snap.exists()) {
                 videoData = snap.data(); 
-                
-                // --- Background Pre-Check for Next Episode ---
-                checkNextEpisode();
-
-                let allSources = [];
-                if(videoData.illusions && videoData.illusions.length > 0) allSources = videoData.illusions.map(i => ({ name: i.qualityName || i.quality || 'HD', url: i.url }));
-                else if (videoData.videos && videoData.videos.length > 0) allSources = videoData.videos.map(v => ({ name: v.quality || 'Default', url: v.url }));
+                checkNextEpisode(); // Background pre-check for Next Ep
 
                 const qList = document.getElementById('qualityList');
-                if(allSources.length > 0) {
-                    let mainUrl = allSources[0].url;
-                    if (mainUrl.includes('.m3u8') && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                        if(hlsEngine) hlsEngine.destroy(); hlsEngine = new Hls(); hlsEngine.loadSource(mainUrl); hlsEngine.attachMedia(video);
+                const aList = document.getElementById('audioList');
+                const sList = document.getElementById('subList');
+
+                qList.innerHTML = '';
+                aList.innerHTML = '';
+
+                // --- NEW LOGIC: Check for M3U8 URL ---
+                if (videoData.m3u8Url && videoData.m3u8Url.trim() !== "") {
+                    let mainUrl = videoData.m3u8Url.trim();
+                    
+                    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                        if(hlsEngine) hlsEngine.destroy(); 
+                        hlsEngine = new Hls(); 
+                        hlsEngine.loadSource(mainUrl); 
+                        hlsEngine.attachMedia(video);
+                        
                         hlsEngine.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
+                            // Load Qualities automatically
                             qList.innerHTML = '<div class="bs-item active" onclick="selectHlsQuality(this, -1)">Auto / Network Default</div>';
-                            data.levels.forEach((level, index) => { qList.innerHTML += `<div class="bs-item" onclick="selectHlsQuality(this, ${index})">${level.height}p</div>`; });
+                            data.levels.forEach((level, index) => { 
+                                qList.innerHTML += `<div class="bs-item" onclick="selectHlsQuality(this, ${index})">${level.height}p</div>`; 
+                            });
+                        });
+
+                        hlsEngine.on(Hls.Events.AUDIO_TRACKS_UPDATED, function(event, data) {
+                            // Load Audios automatically if embedded in M3U8
+                            if (data.audioTracks && data.audioTracks.length > 1) {
+                                aList.innerHTML = '';
+                                data.audioTracks.forEach((track, index) => {
+                                    let trackName = track.name || track.language || 'Audio ' + (index + 1);
+                                    let isActive = (index === hlsEngine.audioTrack) ? ' active' : '';
+                                    aList.innerHTML += `<div class="bs-item${isActive}" onclick="selectHlsAudio(this, ${index})">${trackName}</div>`;
+                                });
+                                useExtAudio = false; 
+                                video.muted = false; 
+                            } else {
+                                // Fallback to DB Audios if HLS has only 1 or 0 audio tracks
+                                loadDbAudios(videoData);
+                            }
+                        });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        // Native Safari Support fallback
+                        video.src = mainUrl;
+                        loadDbAudios(videoData);
+                    }
+                } 
+                else {
+                    // --- FALLBACK LOGIC: Using Raw Video Array (MP4 etc) ---
+                    let allSources = [];
+                    if(videoData.illusions && videoData.illusions.length > 0) allSources = videoData.illusions.map(i => ({ name: i.qualityName || i.quality || 'HD', url: i.url }));
+                    else if (videoData.videos && videoData.videos.length > 0) allSources = videoData.videos.map(v => ({ name: v.quality || 'Default', url: v.url }));
+
+                    if(allSources.length > 0) {
+                        video.src = allSources[0].url;
+                        allSources.forEach((src, index) => {
+                            const item = document.createElement('div'); 
+                            item.className = 'bs-item' + (index === 0 ? ' active' : ''); 
+                            item.innerText = src.name;
+                            item.onclick = function() { selectQuality(this, src.url); }; 
+                            qList.appendChild(item);
                         });
                     } else {
-                        video.src = mainUrl; qList.innerHTML = ''; 
-                        allSources.forEach((src, index) => {
-                            const item = document.createElement('div'); item.className = 'bs-item' + (index === 0 ? ' active' : ''); item.innerText = src.name;
-                            item.onclick = function() { selectQuality(this, src.url); }; qList.appendChild(item);
-                        });
+                        document.getElementById('tTitle').innerText = "No Sources Found";
+                        document.getElementById('tSub').innerText = "This episode has no videos attached in DB.";
+                        spinner.style.display = 'none';
+                        return;
                     }
-                } else {
-                    document.getElementById('tTitle').innerText = "No Sources Found";
-                    document.getElementById('tSub').innerText = "This episode has no videos attached in DB.";
-                    spinner.style.display = 'none';
-                    return;
+                    loadDbAudios(videoData);
                 }
 
-                const aList = document.getElementById('audioList');
-                if(videoData.audios && videoData.audios.length > 0) {
-                    aList.innerHTML = ''; 
-                    videoData.audios.forEach((aud, index) => {
-                        const item = document.createElement('div'); item.className = 'bs-item' + (index === 0 ? ' active' : '');
-                        item.innerText = aud.language || aud.name || 'Audio ' + (index + 1);
-                        item.onclick = function() { selectAudio(this, aud.url); }; aList.appendChild(item);
-                        if (index === 0) { useExtAudio = true; video.muted = true; extAudio.src = aud.url; }
-                    });
-                }
-
-                const sList = document.getElementById('subList');
+                // Subtitles Logic (Remains unchanged)
                 if(videoData.subtitles && videoData.subtitles.length > 0) {
                     videoData.subtitles.forEach((sub, index) => {
                         const track = document.createElement('track'); track.kind = 'captions'; track.label = sub.language || sub.name || 'Sub ' + (index + 1); track.src = sub.url; video.appendChild(track);
@@ -322,7 +353,19 @@
         }
     }
 
-    // Helper to check if another episode exists in DB
+    function loadDbAudios(data) {
+        const aList = document.getElementById('audioList');
+        if(data.audios && data.audios.length > 0) {
+            aList.innerHTML = ''; 
+            data.audios.forEach((aud, index) => {
+                const item = document.createElement('div'); item.className = 'bs-item' + (index === 0 ? ' active' : '');
+                item.innerText = aud.language || aud.name || 'Audio ' + (index + 1);
+                item.onclick = function() { selectAudio(this, aud.url); }; aList.appendChild(item);
+                if (index === 0) { useExtAudio = true; video.muted = true; extAudio.src = aud.url; }
+            });
+        }
+    }
+
     async function checkNextEpisode() {
         try {
             const currentOrder = videoData.orderIndex || 0;
@@ -366,6 +409,7 @@
 
     window.selectQuality = (elem, url) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(url && video.src !== url) { const ct = video.currentTime; const p = video.paused; video.src = url; video.currentTime = ct; if(!p) video.play(); } closeAllSheets(); };
     window.selectHlsQuality = (elem, levelIndex) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.currentLevel = levelIndex; closeAllSheets(); };
+    window.selectHlsAudio = (elem, trackIndex) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.audioTrack = trackIndex; closeAllSheets(); };
     window.selectDbSub = (elem, trackIndex) => { document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'disabled'; if (trackIndex !== -1 && video.textTracks[trackIndex]) video.textTracks[trackIndex].mode = 'showing'; closeAllSheets(); };
     window.selectAudio = (elem, url) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(url) { useExtAudio = true; video.muted = true; extAudio.src = url; extAudio.currentTime = video.currentTime; if(!video.paused) extAudio.play(); } else { useExtAudio = false; video.muted = false; extAudio.pause(); } closeAllSheets(); };
 
@@ -383,7 +427,7 @@
     document.getElementById('leftGesture').addEventListener('touchstart', handleTouchStart);
     document.getElementById('leftGesture').addEventListener('touchmove', (e) => { if(isLocked) return; let diff = startY - e.touches[0].clientY; currentBright = Math.max(0, Math.min(0.8, currentBright + (diff > 0 ? -0.02 : 0.02))); brightOverlay.style.backgroundColor = `rgba(0,0,0,${currentBright})`; gInfo.innerText = `Brightness: ${Math.round((1 - currentBright)*100)}%`; gInfo.style.display = 'block'; startY = e.touches[0].clientY; });
     document.getElementById('rightGesture').addEventListener('touchstart', handleTouchStart);
-    document.getElementById('rightGesture').addEventListener('touchmove', (e) => { if(isLocked) return; let diff = startY - e.touches[0].clientY; currentVol = Math.max(0, Math.min(2, currentVol + (diff > 0 ? 0.02 : -0.02))); setupAudio(); if(currentVol <= 1) { video.volume = currentVol; if(gainNode) gainNode.gain.value = 1; } else { video.volume = 1; if(gainNode) gainNode.gain.value = currentVol; } gInfo.innerText = `Volume: ${Math.round(currentVol * 100)}%`; gInfo.style.display = 'block'; startY = e.touches[0].clientY; });
+    document.getElementById('rightGesture').addEventListener('touchmove', (e) => { if(isLocked) return; let diff = startY - e.touches[0].clientY; currentVol = Math.max(0, Math.min(3, currentVol + (diff > 0 ? 0.02 : -0.02))); setupAudio(); if(currentVol <= 1) { video.volume = currentVol; if(gainNode) gainNode.gain.value = 1; } else { video.volume = 1; if(gainNode) gainNode.gain.value = currentVol; } gInfo.innerText = `Volume: ${Math.round(currentVol * 100)}%`; gInfo.style.display = 'block'; startY = e.touches[0].clientY; });
     document.querySelectorAll('.gesture-zone').forEach(z => z.addEventListener('touchend', () => gInfo.style.display = 'none'));
 
     wrap.addEventListener('dblclick', (e) => { if(isLocked) return; if(e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.bottom-sheet')) return; const rect = wrap.getBoundingClientRect(); if (e.clientX < rect.width / 2) triggerSkip(-10, null); else triggerSkip(10, null); });
@@ -401,28 +445,18 @@
         if(Math.floor(video.currentTime)%5===0 && epId) localStorage.setItem(`vid_${epId}`, video.currentTime);
         
         let showSkip = false, skipTarget = 0, btnText = "";
-        let actionType = "skip"; // "skip" or "next"
+        let actionType = "skip"; 
 
         if (videoData) {
             const ct = video.currentTime;
-            
-            // Checking Intro Range
             if (videoData.introEnd && videoData.introEnd > 0 && ct >= videoData.introStart && ct <= videoData.introEnd) {
                 showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
             }
-            
-            // Checking Outro Range
             if (videoData.outroEnd && videoData.outroEnd > 0 && ct >= videoData.outroStart && ct <= videoData.outroEnd) {
                 showSkip = true; 
                 skipTarget = videoData.outroEnd;
-                // If next episode exists, show "Next Episode", else show "Skip Outro"
-                if(nextEpId) {
-                    btnText = "Next Episode";
-                    actionType = "next";
-                } else {
-                    btnText = "Skip Outro";
-                    actionType = "skip";
-                }
+                if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
+                else { btnText = "Skip Outro"; actionType = "skip"; }
             }
         }
 
@@ -439,8 +473,6 @@
                     skipPopup.style.display = 'block';
                     window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
                 } else {
-                    // Logic for Skip Intro OR Skip Outro (last episode)
-                    // If Skip Outro, just go to the very end
                     if(btnText === "Skip Outro") video.currentTime = video.duration;
                     else video.currentTime = skipTarget; 
                 }
@@ -467,10 +499,6 @@
     });
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
-</script>
-</body>
-</html>
-touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
 </body>
 </html>
