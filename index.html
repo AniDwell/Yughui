@@ -324,7 +324,6 @@
                 document.getElementById('tTitle').innerText = videoData.title || "Unknown Episode";
                 document.getElementById('tSub').innerText = videoData.description || "Episode details unavailable.";
 
-                // --- SAFE TIME LOAD ---
                 const savedTime = localStorage.getItem(`vid_${epId}`); 
                 if(savedTime) {
                     const st = parseFloat(savedTime);
@@ -371,12 +370,14 @@
 
     loadVideo();
 
-    // --- FAULT-TOLERANT SYNC LOGIC ---
+    // --- FAULT-TOLERANT SYNC & BUFFER LOGIC ---
     let isIntendedToPlay = false;
     let isSyncing = false;
+    let audioBufferTimeout = null;
+    let isAudioBuffering = false;
 
     function syncAudioTime() {
-        if (!useExtAudio || isSyncing) return;
+        if (!useExtAudio || isSyncing || isAudioBuffering) return;
         try {
             if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.3) {
                 isSyncing = true;
@@ -438,18 +439,45 @@
     });
 
     extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && isIntendedToPlay) video.pause(); 
+        if(useExtAudio && isIntendedToPlay) {
+            isAudioBuffering = true;
+            clearTimeout(audioBufferTimeout);
+            audioBufferTimeout = setTimeout(() => {
+                if (isAudioBuffering) { 
+                    spinner.style.display = 'block';
+                    video.pause(); 
+                }
+            }, 3000); 
+        }
     });
 
     extAudio.addEventListener('canplay', () => {
-        if(useExtAudio && isIntendedToPlay && video.paused) {
-            video.play().catch(()=>{}); 
+        if(useExtAudio && isIntendedToPlay) {
+            isAudioBuffering = false;
+            clearTimeout(audioBufferTimeout);
+            if (video.paused) {
+                spinner.style.display = 'none';
+                video.play().catch(()=>{}); 
+            }
         }
     });
     
-    // Agar external audio toot jaye, to block mat karo
+    extAudio.addEventListener('playing', () => {
+        isAudioBuffering = false;
+        clearTimeout(audioBufferTimeout);
+        if(useExtAudio && isIntendedToPlay) {
+            spinner.style.display = 'none';
+            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.3 && !isSyncing) {
+                extAudio.currentTime = video.currentTime;
+            }
+            if(video.paused) video.play().catch(()=>{});
+        }
+    });
+
     extAudio.addEventListener('error', () => {
         useExtAudio = false; 
+        isAudioBuffering = false;
+        clearTimeout(audioBufferTimeout);
         if(isIntendedToPlay) video.play().catch(()=>{});
     });
 
@@ -506,7 +534,6 @@
             skipPopup.style.display = 'none';
         }
     });
-
 
     window.triggerSkip = (amount, e) => {
         if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); 
@@ -596,5 +623,6 @@
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
+
 </body>
 </html>
