@@ -102,7 +102,6 @@
         .player-wrapper:not(.is-fullscreen) #brightnessOverlay { display: none; }
         .player-wrapper:not(.is-fullscreen) .skip-rect { display: none !important; }
         
-        /* Justify fullscreen button to the right cleanly when other icons are hidden */
         .player-wrapper:not(.is-fullscreen) .bottom-tools { justify-content: flex-end; }
 
         @media (max-width: 768px) { .center-controls { gap: 30px; } .play-icon { width: 56px; height: 56px; } .skip-icon { width: 36px; height: 36px; } .top-bar { padding: 15px; } .bottom-area { padding: 10px 15px 15px 15px; } .main-title { font-size: 15px; } .sub-title { font-size: 12px; } .time { font-size: 11px; min-width: 35px; } .skip-rect { bottom: 75px; padding: 6px 12px; font-size: 12px; right: 15px; } .float-text { font-size: 15px; } .bottom-sheet { padding: 15px; } .bs-header { font-size: 18px; } }
@@ -115,8 +114,10 @@
     <div id="brightnessOverlay"></div>
     <div class="gesture-info" id="gestureInfo">Volume: 100%</div>
     <div class="ad-overlay" id="adOverlay"><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Playing Advertisement</div><div style="color: white;">Ad cannot be skipped...</div></div>
+    
     <video id="mainVideo" crossorigin="anonymous" playsinline></video>
     <audio id="externalAudio"></audio>
+    
     <div class="gesture-zone" id="leftGesture"></div><div class="gesture-zone" id="rightGesture"></div>
 
     <div class="ui-layer" id="uiLayer">
@@ -231,7 +232,6 @@
     video.preservesPitch = savedPitch;
     if(!savedPitch) document.getElementById('pitchToggle').classList.remove('active');
 
-    // Make sure we start in non-fullscreen mode class
     wrap.classList.remove('is-fullscreen');
 
     let audioCtx, trackSource, gainNode, isAudioSetup = false;
@@ -381,15 +381,14 @@
         } catch(e) { console.warn("Next ep check failed", e); }
     }
 
-    // -------------------------------------------------------------
-    // PERFECT SYNCHRONIZATION LOGIC (Relaxed Initial Play)
-    // -------------------------------------------------------------
+    // --- BULLETPROOF AUDIO/VIDEO SYNC LOGIC ---
     let isIntendedToPlay = false;
 
     playPauseBtn.addEventListener('click', (e) => { 
         e.stopPropagation(); 
         setupAudio(); 
-        if(video.paused) {
+        
+        if (video.paused) {
             isIntendedToPlay = true;
             video.play();
             if(useExtAudio) extAudio.play();
@@ -404,15 +403,16 @@
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
-        // Only force ext audio play if user clicked play
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play(); 
+        if(useExtAudio && isIntendedToPlay) {
+            extAudio.play(); 
+        }
     });
     
     video.addEventListener('pause', () => { 
         document.getElementById('playIcon').style.display='block'; 
         document.getElementById('pauseIcon').style.display='none'; 
         showUI(); 
-        if(useExtAudio && !extAudio.paused) extAudio.pause(); 
+        if(useExtAudio) extAudio.pause(); 
     });
 
     video.addEventListener('seeking', () => { 
@@ -423,12 +423,12 @@
 
     video.addEventListener('waiting', () => { 
         spinner.style.display = 'block'; 
-        if(useExtAudio && !extAudio.paused) extAudio.pause();
+        if(useExtAudio) extAudio.pause();
     });
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
+        if(useExtAudio && isIntendedToPlay) {
             if(Math.abs(video.currentTime - extAudio.currentTime) > 0.1) {
                 extAudio.currentTime = video.currentTime;
             }
@@ -437,14 +437,14 @@
     });
 
     extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && !video.paused) {
+        if(useExtAudio) {
             spinner.style.display = 'block';
             video.pause();
         }
     });
 
     extAudio.addEventListener('playing', () => {
-        if(useExtAudio && isIntendedToPlay && video.paused) {
+        if(useExtAudio && isIntendedToPlay) {
             spinner.style.display = 'none';
             if(Math.abs(video.currentTime - extAudio.currentTime) > 0.1) {
                 video.currentTime = extAudio.currentTime;
@@ -456,7 +456,7 @@
     video.addEventListener('ratechange', () => { 
         if(useExtAudio) extAudio.playbackRate = video.playbackRate; 
     });
-    // -------------------------------------------------------------
+    // --- END SYNC LOGIC ---
 
     window.triggerSkip = (amount, e) => {
         if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); 
@@ -528,7 +528,7 @@
     track.addEventListener('touchstart', (e) => { isDragging = true; handleDrag(e); }); track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } });
 
     video.addEventListener('timeupdate', () => {
-        // Continuous exact sync (only if both are playing)
+        // Continuous exact sync
         if(useExtAudio && !video.paused && !extAudio.paused) {
             if(Math.abs(video.currentTime - extAudio.currentTime) > 0.15) {
                 extAudio.currentTime = video.currentTime;
@@ -554,6 +554,7 @@
             }
         }
 
+        // Only show skip buttons if in fullscreen mode
         if(showSkip && !isLocked && wrap.classList.contains('is-fullscreen')) { 
             skipPopup.style.display = 'block'; 
             skipPopup.innerText = btnText;
@@ -565,7 +566,7 @@
                 if(actionType === "next") {
                     skipPopup.innerText = "Loading...";
                     skipPopup.style.display = 'block';
-                    window.parent.location.href = `?m=1&seriesId=${seriesId}&epId=${nextEpId}`; // Redirect parent window
+                    window.parent.location.href = `?m=1&seriesId=${seriesId}&epId=${nextEpId}`; 
                 } else {
                     if(btnText === "Skip Outro") video.currentTime = video.duration;
                     else video.currentTime = skipTarget; 
