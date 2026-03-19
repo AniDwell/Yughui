@@ -190,9 +190,60 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+
+    // ==========================================
+    // --- ADVERTISEMENT & PREMIUM USER CONFIG ---
+    // ==========================================
+    const AD_URL = "https://necessary-jury.com/dXm.FwzWdzG/NavAZWG/Ux/FeEmx9buLZxU/l-kGPETUYA4tNETHk/wgMzjGE/tqNXjcgG1GOETLAByXN_QW";
+    
+    let isPremiumUser = false; 
+    let isAuthResolved = false; // Prevents clicking until Firebase finishes checking
+    let startAdTriggered = false;
+    let middleAdTriggered = false;
+
+    function triggerPopunder() {
+        if (!isPremiumUser) {
+            window.open(AD_URL, '_blank');
+        }
+    }
+    // ==========================================
 
     const videoApp = initializeApp({ apiKey: "AIzaSyAPLj8br4ZbM0OSRCQ80GNqyjXZ6fRAKOA", authDomain: "wuhq8q8q.firebaseapp.com", projectId: "wuhq8q8q", storageBucket: "wuhq8q8q.firebasestorage.app" }, "videoApp");
     const videoDb = getFirestore(videoApp);
+    const auth = getAuth(videoApp);
+
+    // --- CHECK USER PREMIUM STATUS ---
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            try {
+                const userRef = doc(videoDb, "users", user.uid);
+                const userSnap = await getDoc(userRef);
+                
+                if (userSnap.exists()) {
+                    const userData = userSnap.data();
+                    
+                    if (userData.planExpiry) {
+                        const expiryDate = userData.planExpiry.toDate(); 
+                        const now = new Date();
+                        
+                        if (expiryDate > now) {
+                            isPremiumUser = true;
+                            console.log("Premium Active: Ads Disabled.");
+                        } else {
+                            console.log("Premium Expired: Ads Enabled.");
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Error verifying subscription:", error);
+            }
+        } else {
+            console.log("No user logged in: Ads Enabled.");
+        }
+        // Unlock the player interactions now that we know their status
+        isAuthResolved = true; 
+    });
 
     const params = new URLSearchParams(window.location.search);
     const seriesId = params.get('seriesId');
@@ -206,6 +257,7 @@
     const track = document.getElementById('progressTrack');
     const wrap = document.getElementById('playerWrap');
     const spinner = document.getElementById('spinner');
+    const adOverlay = document.getElementById('adOverlay');
 
     let videoData = null, nextEpId = null, isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
@@ -249,12 +301,11 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
-                        // ADVANCED HLS CONFIG FOR LOW INTERNET & REWIND CACHING
                         hlsEngine = new Hls({
-                            maxMaxBufferLength: 600, // Aage ka 10 min preload karega
-                            backBufferLength: 900,   // Pichla 15 min memory me rakhega (No Rewind Buffering)
-                            maxBufferSize: 100 * 1000 * 1000, // Max 100MB buffer memory
-                            capLevelToPlayerSize: true // Low internet friendly
+                            maxMaxBufferLength: 600,
+                            backBufferLength: 900,
+                            maxBufferSize: 100 * 1000 * 1000,
+                            capLevelToPlayerSize: true
                         }); 
                         
                         hlsEngine.loadSource(mainUrl); 
@@ -366,7 +417,6 @@
 
     loadVideo();
 
-    // --- OPTIMIZED FAULT-TOLERANT SYNC LOGIC ---
     let isIntendedToPlay = false;
     let isSyncing = false;
     let audioBufferTimeout = null;
@@ -385,6 +435,15 @@
 
     playPauseBtn.addEventListener('click', (e) => { 
         e.stopPropagation(); 
+        
+        // Wait for Firebase to finish checking
+        if (!isAuthResolved) return; 
+
+        if (!isPremiumUser && !startAdTriggered) {
+            startAdTriggered = true;
+            triggerPopunder();
+        }
+
         if(video.paused) {
             isIntendedToPlay = true;
             video.play().catch(()=>{});
@@ -466,6 +525,29 @@
 
     video.addEventListener('timeupdate', () => {
         syncAudioTime();
+
+        if (!isPremiumUser && !middleAdTriggered && video.duration > 10 && video.currentTime >= (video.duration / 2)) {
+            middleAdTriggered = true;
+            video.pause();
+            if(useExtAudio) extAudio.pause();
+            
+            adOverlay.style.display = 'flex';
+            adOverlay.innerHTML = `
+                <div style="font-size: 24px; font-weight: bold; margin-bottom: 10px; color: white;">Advertisement</div>
+                <div style="color: var(--text-sec); margin-bottom: 20px;">Video paused for a sponsor message.</div>
+                <button id="resumeAdBtn" style="padding: 12px 24px; font-size: 16px; font-weight: bold; background: var(--ad-color); color: black; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase;">Click to Resume Video</button>
+            `;
+            
+            document.getElementById('resumeAdBtn').onclick = (e) => {
+                e.stopPropagation();
+                triggerPopunder();
+                adOverlay.style.display = 'none';
+                isIntendedToPlay = true;
+                video.play().catch(()=>{});
+                if(useExtAudio) extAudio.play().catch(()=>{});
+            };
+            return; 
+        }
 
         if(!isDragging) { 
             const curr = video.currentTime, dur = video.duration || 1; 
@@ -558,7 +640,6 @@
     document.getElementById('leftGesture').addEventListener('touchmove', (e) => { if(isLocked) return; let diff = startY - e.touches[0].clientY; currentBright = Math.max(0, Math.min(0.8, currentBright + (diff > 0 ? -0.02 : 0.02))); brightOverlay.style.backgroundColor = `rgba(0,0,0,${currentBright})`; gInfo.innerText = `Brightness: ${Math.round((1 - currentBright)*100)}%`; gInfo.style.display = 'block'; startY = e.touches[0].clientY; });
     document.getElementById('rightGesture').addEventListener('touchstart', handleTouchStart);
     
-    // DIRECT VOLUME CONTROL (No Web Audio API)
     document.getElementById('rightGesture').addEventListener('touchmove', (e) => { 
         if(isLocked) return; let diff = startY - e.touches[0].clientY; 
         currentVol = Math.max(0, Math.min(1, currentVol + (diff > 0 ? 0.02 : -0.02))); 
@@ -588,6 +669,14 @@
     function hideUI() { if(!video.paused) { uiLayer.classList.add('hidden'); closeAllSheets(); isUiVisible = false; } }
 
     wrap.addEventListener('click', (e) => {
+        // Wait for Firebase to finish checking
+        if (!isAuthResolved) return; 
+
+        if (!isPremiumUser && !startAdTriggered) {
+            startAdTriggered = true;
+            triggerPopunder();
+        }
+
         const aSheet = document.querySelector('.bottom-sheet.active');
         if (aSheet && !e.target.closest('.bottom-sheet')) { if(e.target.closest('.tr-icon') || e.target.closest('.hd-icon') || e.target.closest('.speed-text')) return; closeAllSheets(); showUI(); return; }
         if(e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.speed-text') || e.target.closest('.hd-icon')) { showUI(); return; }
