@@ -250,12 +250,16 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
-                        // OPTIMIZED HLS CONFIG: Prevents memory bloat & frame drops
+                        // SLOW INTERNET OPTIMIZATION: Aggressive caching logic
                         hlsEngine = new Hls({
-                            maxMaxBufferLength: 300, 
-                            backBufferLength: 90,   
-                            maxBufferSize: 30 * 1000 * 1000, // Reduced to 30MB for smooth mobile playback
-                            capLevelToPlayerSize: true 
+                            maxBufferLength: 120,       // Aage ka 2 minute hamesha ready rakhega
+                            maxMaxBufferLength: 600,    // Memory allow kare to 10 min aage tak download karega
+                            backBufferLength: 300,      // Pichla 5 minute cache me rakhega (No buffering on rewind)
+                            maxBufferSize: 60 * 1000 * 1000, // 60MB max RAM usage so phone doesn't freeze
+                            capLevelToPlayerSize: true, // Auto-adjusts quality to screen size saving data
+                            manifestLoadingMaxRetry: 5, // Slow net pe retry karega
+                            fragLoadingMaxRetry: 5,
+                            fragLoadingTimeOut: 20000   // Gives more time for fragments to load on slow net
                         }); 
                         
                         hlsEngine.loadSource(mainUrl); 
@@ -345,21 +349,31 @@
     function loadDbAudios(data) {
         const aList = document.getElementById('audioList');
         aList.innerHTML = ''; 
+        
+        const hasExtAudio = data.audios && data.audios.length > 0;
 
-        // Add Default Video Audio Option
+        // Default native audio button
         const defItem = document.createElement('div'); 
-        defItem.className = 'bs-item' + (!useExtAudio ? ' active' : '');
-        defItem.innerText = 'Default Video Audio';
+        defItem.className = 'bs-item' + (!hasExtAudio ? ' active' : '');
+        defItem.innerText = 'Default';
         defItem.onclick = function() { selectAudio(this, null); };
         aList.appendChild(defItem);
 
-        if(data.audios && data.audios.length > 0) {
+        if(hasExtAudio) {
             data.audios.forEach((aud, index) => {
                 const item = document.createElement('div'); 
-                item.className = 'bs-item';
+                // Auto-select the first external audio
+                item.className = 'bs-item' + (index === 0 ? ' active' : '');
                 item.innerText = aud.language || aud.name || 'External Audio ' + (index + 1);
                 item.onclick = function() { selectAudio(this, aud.url); }; 
                 aList.appendChild(item);
+                
+                // Set the player to use this first external audio right away
+                if (index === 0) {
+                    useExtAudio = true;
+                    video.muted = true;
+                    extAudio.src = aud.url;
+                }
             });
         }
     }
@@ -376,7 +390,6 @@
 
     loadVideo();
 
-    // --- OPTIMIZED FAULT-TOLERANT SYNC LOGIC ---
     let isIntendedToPlay = false;
     let isSyncing = false;
     let audioBufferTimeout = null;
@@ -462,7 +475,6 @@
 
     let lastSyncTime = 0;
     video.addEventListener('timeupdate', () => {
-        // Throttled Audio Syncing to prevent frame drops (1 check per second)
         const now = performance.now();
         if (useExtAudio && now - lastSyncTime > 1000) {
             if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.3 && !isSyncing) {
@@ -574,7 +586,7 @@
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
     window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
 
-    // --- MX PLAYER STYLE HORIZONTAL SWIPE TO SEEK ---
+    // --- UPDATED SWIPE TO SEEK (Reduced Sensitivity) ---
     let swipeStartX = 0;
     let swipeStartTime = 0;
     let isSwiping = false;
@@ -582,7 +594,6 @@
     wrap.addEventListener('touchstart', (e) => {
         if (isLocked || e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track')) return;
         swipeStartX = e.touches[0].clientX;
-        swipeStartTime = video.currentTime;
         isSwiping = false;
     }, {passive: true});
 
@@ -590,9 +601,14 @@
         if (isLocked || swipeStartX === 0 || !video.duration) return;
         const deltaX = e.touches[0].clientX - swipeStartX;
         
-        if (Math.abs(deltaX) > 15) { // Threshold to start seeking
-            isSwiping = true;
-            const seekOffset = deltaX * 0.15; // Speed factor
+        // Increased threshold to 40 pixels so accidental light touches are ignored
+        if (Math.abs(deltaX) > 40) { 
+            if (!isSwiping) {
+                isSwiping = true;
+                swipeStartTime = video.currentTime; // Lock in the start time only once the threshold is crossed
+            }
+            
+            const seekOffset = (deltaX > 0 ? deltaX - 40 : deltaX + 40) * 0.15; // Smooth seeking minus the deadzone
             let newTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
             
             centerControls.style.opacity = '0'; // Hide center buttons
@@ -605,7 +621,7 @@
     wrap.addEventListener('touchend', (e) => {
         if (isSwiping) {
             const deltaX = e.changedTouches[0].clientX - swipeStartX;
-            const seekOffset = deltaX * 0.15;
+            const seekOffset = (deltaX > 0 ? deltaX - 40 : deltaX + 40) * 0.15;
             video.currentTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
             
             centerControls.style.opacity = '1';
@@ -627,7 +643,7 @@
     let timeoutId;
     function showUI() { 
         uiLayer.classList.remove('hidden'); 
-        wrap.style.cursor = 'default'; // Show cursor when UI is active
+        wrap.style.cursor = 'default'; 
         isUiVisible = true; 
         clearTimeout(timeoutId); 
         timeoutId = setTimeout(() => { 
@@ -638,7 +654,7 @@
     function hideUI() { 
         if(!video.paused) { 
             uiLayer.classList.add('hidden'); 
-            wrap.style.cursor = 'none'; // Hide cursor when UI fades
+            wrap.style.cursor = 'none'; 
             closeAllSheets(); 
             isUiVisible = false; 
         } 
