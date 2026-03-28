@@ -250,17 +250,16 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
-                        // HIGHLY OPTIMIZED HLS CONFIG FOR LOW RAM & SLOW INTERNET
+                        // SUPER LIGHTWEIGHT HLS CONFIG TO PREVENT FRAME DROPS
                         hlsEngine = new Hls({
-                            enableWorker: true, // Crucial for low-end mobile devices (offloads CPU)
-                            maxBufferLength: 60, // Buffers up to 60s ahead
-                            maxMaxBufferLength: 120, // Max buffer length
-                            maxBufferSize: 50 * 1000 * 1000, // 50MB Cap to prevent low RAM crash
-                            capLevelToPlayerSize: true, // Prevents loading 1080p on small mobile screens unless forced
-                            manifestLoadingTimeOut: 20000, // Forgiveness for slow networks
-                            manifestLoadingMaxRetry: 5,
-                            levelLoadingTimeOut: 20000,
-                            startLevel: -1 // Auto Quality by default
+                            enableWorker: true,
+                            maxBufferLength: 30, // Reduced to prevent memory lag
+                            maxMaxBufferLength: 60, 
+                            maxBufferSize: 30 * 1000 * 1000, // 30MB Limit
+                            capLevelToPlayerSize: true,
+                            manifestLoadingTimeOut: 10000,
+                            levelLoadingTimeOut: 10000,
+                            startLevel: -1 
                         }); 
                         
                         hlsEngine.loadSource(mainUrl); 
@@ -397,10 +396,11 @@
 
     loadVideo();
 
-    // --- STREAMLINED AUDIO/VIDEO SYNC (Fixes Glitches) ---
+    // --- OPTIMIZED AUDIO/VIDEO SYNC (No Frame Drops) ---
     function syncAudioTime() {
         if(useExtAudio && extAudio.readyState >= 1) {
-            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.25) {
+            // Increased threshold to 0.4s to prevent micro-stutter loops
+            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.4) {
                 extAudio.currentTime = video.currentTime;
             }
         }
@@ -439,10 +439,9 @@
         if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
     });
 
-    // Fix Ext Audio Buffer causing desync
     extAudio.addEventListener('waiting', () => {
         if(useExtAudio && !video.paused) {
-            video.pause(); // Pause main video to wait for audio
+            video.pause(); 
             spinner.style.display = 'block';
         }
     });
@@ -455,25 +454,41 @@
 
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
+    // Background sync check so it doesn't block the video rendering thread
+    setInterval(() => {
+        if(!video.paused && useExtAudio) syncAudioTime();
+    }, 4000);
+
+    // --- HARDWARE ACCELERATED UI UPDATES ---
+    let uiUpdateScheduled = false;
     video.addEventListener('timeupdate', () => {
-        if(!isDragging && !isSwiping) { 
-            const curr = video.currentTime, dur = video.duration || 1; 
-            document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
-            if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
-            document.getElementById('currTime').innerText = formatTime(curr); 
-            document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
-            
-            // Periodically check sync just in case it drifted over time
-            if (Math.floor(curr) % 3 === 0) syncAudioTime();
+        if (!uiUpdateScheduled && !isDragging && !isSwiping) {
+            uiUpdateScheduled = true;
+            // requestAnimationFrame forces UI rendering to sync with browser refresh rate
+            requestAnimationFrame(() => {
+                updateProgressUI();
+                uiUpdateScheduled = false;
+            });
         }
+    });
+
+    function updateProgressUI() {
+        const curr = video.currentTime, dur = video.duration || 1; 
+        document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
+        if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
+        document.getElementById('currTime').innerText = formatTime(curr); 
+        document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
         
-        if(Math.floor(video.currentTime)%5===0 && epId) localStorage.setItem(`vid_${epId}`, video.currentTime);
+        if(Math.floor(curr)%5===0 && epId) localStorage.setItem(`vid_${epId}`, curr);
         
+        checkSkipIntroOutro(curr);
+    }
+
+    function checkSkipIntroOutro(ct) {
         let showSkip = false, skipTarget = 0, btnText = "";
         let actionType = "skip"; 
 
         if (videoData) {
-            const ct = video.currentTime;
             if (videoData.introEnd && videoData.introEnd > 0 && ct >= videoData.introStart && ct <= videoData.introEnd) {
                 showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
             }
@@ -497,7 +512,7 @@
                 }
             }; 
         } else { skipPopup.style.display = 'none'; }
-    });
+    }
 
     window.triggerSkip = (amount, e) => {
         if(e) e.stopPropagation(); if(isLocked) return; 
@@ -568,7 +583,7 @@
         switch(e.key) {
             case ' ':
             case 'MediaPlayPause':
-            case 'Enter': // For smart tv remotes
+            case 'Enter': 
                 e.preventDefault(); playPauseBtn.click(); break;
             case 'ArrowRight':
             case 'MediaFastForward':
