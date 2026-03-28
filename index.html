@@ -252,13 +252,15 @@
                         
                         // HIGHLY OPTIMIZED HLS CONFIG FOR LOW RAM & SLOW INTERNET
                         hlsEngine = new Hls({
-                            maxBufferLength: 20,       // Keep buffer short to save RAM
-                            maxMaxBufferLength: 45,    // Max 45 seconds ahead
-                            maxBufferSize: 15 * 1000 * 1000, // Strict 15MB memory limit to prevent TV/Mobile crashes
-                            capLevelToPlayerSize: true, // Don't download 1080p if screen is small
-                            abrEwmaDefaultEstimate: 400000, // Assume slow internet on startup
-                            lowLatencyMode: true,
-                            enableWorker: true
+                            enableWorker: true, // Crucial for low-end mobile devices (offloads CPU)
+                            maxBufferLength: 60, // Buffers up to 60s ahead
+                            maxMaxBufferLength: 120, // Max buffer length
+                            maxBufferSize: 50 * 1000 * 1000, // 50MB Cap to prevent low RAM crash
+                            capLevelToPlayerSize: true, // Prevents loading 1080p on small mobile screens unless forced
+                            manifestLoadingTimeOut: 20000, // Forgiveness for slow networks
+                            manifestLoadingMaxRetry: 5,
+                            levelLoadingTimeOut: 20000,
+                            startLevel: -1 // Auto Quality by default
                         }); 
                         
                         hlsEngine.loadSource(mainUrl); 
@@ -285,6 +287,23 @@
                                 loadDbAudios(videoData);
                             }
                         });
+                        
+                        hlsEngine.on(Hls.Events.ERROR, function(event, data) {
+                            if (data.fatal) {
+                                switch(data.type) {
+                                    case Hls.ErrorTypes.NETWORK_ERROR:
+                                        hlsEngine.startLoad();
+                                        break;
+                                    case Hls.ErrorTypes.MEDIA_ERROR:
+                                        hlsEngine.recoverMediaError();
+                                        break;
+                                    default:
+                                        hlsEngine.destroy();
+                                        break;
+                                }
+                            }
+                        });
+                        
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                         video.src = mainUrl;
                         loadDbAudios(videoData);
@@ -378,48 +397,37 @@
 
     loadVideo();
 
-    // --- ROBUST PLAY/PAUSE LOGIC (Fixes the AbortError glitch) ---
-    let playPromise = null;
-    function togglePlayState(e) {
-        if(e) e.stopPropagation();
-        if (video.paused) {
-            playPromise = video.play();
-            if (playPromise !== undefined) {
-                playPromise.then(_ => {
-                    if (useExtAudio) extAudio.play().catch(()=>{});
-                }).catch(err => console.log("Play interrupted", err));
-            }
-        } else {
-            if (playPromise !== undefined) {
-                playPromise.then(_ => {
-                    video.pause();
-                    if (useExtAudio) extAudio.pause();
-                }).catch(()=>{});
-            } else {
-                video.pause();
-                if (useExtAudio) extAudio.pause();
+    // --- STREAMLINED AUDIO/VIDEO SYNC (Fixes Glitches) ---
+    function syncAudioTime() {
+        if(useExtAudio && extAudio.readyState >= 1) {
+            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.25) {
+                extAudio.currentTime = video.currentTime;
             }
         }
     }
 
-    playPauseBtn.addEventListener('click', togglePlayState);
+    playPauseBtn.addEventListener('click', (e) => { 
+        if(e) e.stopPropagation(); 
+        if(video.paused) { video.play().catch(()=>{}); } 
+        else { video.pause(); }
+    });
 
     video.addEventListener('play', () => { 
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
+        if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{}); 
     });
     
     video.addEventListener('pause', () => { 
         document.getElementById('playIcon').style.display='block'; 
         document.getElementById('pauseIcon').style.display='none'; 
         showUI(); 
+        if(useExtAudio && !extAudio.paused) extAudio.pause(); 
     });
 
-    // --- REFINED AUDIO SYNC ---
-    video.addEventListener('seeking', () => { 
-        if(useExtAudio) extAudio.currentTime = video.currentTime;
-    });
+    video.addEventListener('seeking', syncAudioTime);
+    video.addEventListener('seeked', syncAudioTime);
 
     video.addEventListener('waiting', () => { 
         spinner.style.display = 'block'; 
@@ -428,42 +436,37 @@
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && !video.paused) extAudio.play().catch(()=>{});
+        if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
     });
 
+    // Fix Ext Audio Buffer causing desync
     extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && !video.paused) { spinner.style.display = 'block'; video.pause(); }
+        if(useExtAudio && !video.paused) {
+            video.pause(); // Pause main video to wait for audio
+            spinner.style.display = 'block';
+        }
     });
 
-    extAudio.addEventListener('playing', () => {
-        if(useExtAudio && video.paused) { spinner.style.display = 'none'; video.play().catch(()=>{}); }
+    extAudio.addEventListener('canplay', () => {
+        if(useExtAudio && video.paused && !document.getElementById('playIcon').style.display.includes('block')) {
+            video.play().catch(()=>{});
+        }
     });
 
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
-    // --- PERFORMANCE: requestAnimationFrame for Progress Bar ---
-    let isUpdatingProgress = false;
-    function updateProgressBar() {
-        if(!isUpdatingProgress) return;
-        if(!isDragging && !isSwiping && video.duration) { 
+    video.addEventListener('timeupdate', () => {
+        if(!isDragging && !isSwiping) { 
             const curr = video.currentTime, dur = video.duration || 1; 
             document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
             if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
             document.getElementById('currTime').innerText = formatTime(curr); 
             document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
+            
+            // Periodically check sync just in case it drifted over time
+            if (Math.floor(curr) % 3 === 0) syncAudioTime();
         }
-        requestAnimationFrame(updateProgressBar);
-    }
-
-    video.addEventListener('play', () => { isUpdatingProgress = true; requestAnimationFrame(updateProgressBar); });
-    video.addEventListener('pause', () => { isUpdatingProgress = false; });
-
-    // timeupdate is now ONLY used for low-frequency tasks (saving state & intros)
-    video.addEventListener('timeupdate', () => {
-        if(useExtAudio && extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.5) {
-            extAudio.currentTime = video.currentTime; // Correct drift
-        }
-
+        
         if(Math.floor(video.currentTime)%5===0 && epId) localStorage.setItem(`vid_${epId}`, video.currentTime);
         
         let showSkip = false, skipTarget = 0, btnText = "";
@@ -497,13 +500,15 @@
     });
 
     window.triggerSkip = (amount, e) => {
-        if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); 
+        if(e) e.stopPropagation(); if(isLocked) return; 
+        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + amount)); 
+        showUI(); 
         if (amount > 0) { const btn = document.getElementById('skipFwdBtn'); const txt = document.getElementById('floatRightTxt'); btn.classList.remove('rotate-fwd'); txt.classList.remove('anim-float-fwd'); void btn.offsetWidth; btn.classList.add('rotate-fwd'); txt.classList.add('anim-float-fwd'); } 
         else { const btn = document.getElementById('skipBackBtn'); const txt = document.getElementById('floatLeftTxt'); btn.classList.remove('rotate-bwd'); txt.classList.remove('anim-float-bwd'); void btn.offsetWidth; btn.classList.add('rotate-bwd'); txt.classList.add('anim-float-bwd'); }
     };
 
-    window.toggleFullscreen = () => { if (!document.fullscreenElement) { wrap.requestFullscreen(); screen.orientation?.lock('landscape').catch(()=>{}); } else { document.exitFullscreen(); screen.orientation?.unlock(); } };
-    window.togglePiP = async () => { if(document.pictureInPictureEnabled) await video.requestPictureInPicture(); };
+    window.toggleFullscreen = () => { if (!document.fullscreenElement) { wrap.requestFullscreen().catch(()=>{}); screen.orientation?.lock('landscape').catch(()=>{}); } else { document.exitFullscreen().catch(()=>{}); screen.orientation?.unlock(); } };
+    window.togglePiP = async () => { if(document.pictureInPictureEnabled) await video.requestPictureInPicture().catch(()=>{}); };
     function applyScaleMode(index) { video.style.objectFit = ['contain', 'cover', 'fill'][index]; ['iconFit', 'iconCrop', 'iconStretch'].forEach((id, i) => document.getElementById(id).style.display = i === index ? 'block' : 'none'); }
     window.cycleScaleMode = () => { savedScaleMode = (savedScaleMode + 1) % 3; applyScaleMode(savedScaleMode); localStorage.setItem('aniplay_scale', savedScaleMode); };
 
@@ -539,171 +544,89 @@
             video.muted = true; 
             extAudio.src = url; 
             extAudio.currentTime = video.currentTime; 
-            if(!video.paused) extAudio.play().catch(()=>{});
-        } else {
-            // Default audio par wapas aane ke liye
+            if(!video.paused) extAudio.play().catch(()=>{}); 
+        } else { 
             useExtAudio = false; 
             video.muted = false; 
-            extAudio.pause();
-            extAudio.removeAttribute('src');
+            extAudio.pause(); 
         } 
         closeAllSheets(); 
     };
 
-    // --- PLAYBACK SPEED & PITCH ---
-    window.selectSpeed = (elem, speed) => { 
-        document.querySelectorAll('#speedList .bs-item').forEach(el => el.classList.remove('active')); 
-        elem.classList.add('active'); 
-        setPlaybackSpeed(speed); 
-        closeAllSheets(); 
-    };
+    document.getElementById('localSub').addEventListener('change', e => { if(e.target.files[0]) { const fileName = e.target.files[0].name; const t = document.createElement('track'); t.kind='captions'; t.src=URL.createObjectURL(e.target.files[0]); t.default=true; video.appendChild(t); const newItem = document.createElement('div'); newItem.className = 'bs-item active'; newItem.innerText = fileName.length > 20 ? fileName.substring(0, 20) + "..." : fileName; const newIndex = video.textTracks.length; newItem.onclick = function() { selectDbSub(this, newIndex); }; const sList = document.getElementById('subList'); document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); sList.insertBefore(newItem, sList.lastElementChild.previousElementSibling); closeAllSheets(); } });
+    document.getElementById('localAudio').addEventListener('change', e => { if(e.target.files[0]) { const fileName = e.target.files[0].name; const newItem = document.createElement('div'); newItem.className = 'bs-item active'; newItem.innerText = fileName.length > 20 ? fileName.substring(0, 20) + "..." : fileName; newItem.onclick = function() { selectAudio(this, URL.createObjectURL(e.target.files[0])); }; document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); document.getElementById('audioList').insertBefore(newItem, document.getElementById('audioList').lastElementChild); closeAllSheets(); } });
 
-    function setPlaybackSpeed(speed) {
-        savedSpeed = speed;
-        video.playbackRate = speed;
-        if(useExtAudio) extAudio.playbackRate = speed;
-        localStorage.setItem('aniplay_speed', speed);
-    }
+    const ssSlider = document.getElementById('ssSlider'); const ssSliderFill = document.getElementById('ssSliderFill'); const ssValText = document.getElementById('ssValText');
+    window.setPlaybackSpeed = (val) => { video.playbackRate = val; ssSlider.value = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); };
+    ssSlider.addEventListener('input', (e) => { const val = parseFloat(e.target.value); video.playbackRate = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); });
+    function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
+    window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
 
-    window.togglePitch = () => {
-        savedPitch = !savedPitch;
-        video.preservesPitch = savedPitch;
-        if(useExtAudio) extAudio.preservesPitch = savedPitch;
-        localStorage.setItem('aniplay_pitch', savedPitch);
-        document.getElementById('pitchToggle').classList.toggle('active', savedPitch);
-    };
-
-    // --- TIME FORMATTING ---
-    function formatTime(seconds) {
-        if (isNaN(seconds)) return "00:00";
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
-        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-
-    // --- UI AUTO-HIDE LOGIC ---
-    let uiTimeout;
-    function showUI() {
+    // --- SMART TV KEYBOARD / REMOTE CONTROLS ---
+    document.addEventListener('keydown', (e) => {
         if(isLocked) return;
-        uiLayer.classList.remove('hidden');
-        centerControls.style.opacity = '1';
-        centerControls.style.pointerEvents = 'auto';
-        isUiVisible = true;
-        clearTimeout(uiTimeout);
-        if(!video.paused) {
-            uiTimeout = setTimeout(hideUI, 3000); // 3 seconds baad auto-hide
-        }
-    }
-
-    function hideUI() {
-        if(video.paused || isLocked) return;
-        uiLayer.classList.add('hidden');
-        centerControls.style.opacity = '0';
-        centerControls.style.pointerEvents = 'none';
-        isUiVisible = false;
-        closeAllSheets();
-    }
-
-    wrap.addEventListener('mousemove', showUI);
-    wrap.addEventListener('click', (e) => {
-        // Agar buttons ke alawa khin click ho, toh UI toggle karo
-        if(e.target === wrap || e.target === uiLayer || e.target === video) {
-            if(isUiVisible) hideUI(); else showUI();
-        }
-    });
-    
-    wrap.addEventListener('touchstart', showUI, {passive: true});
-
-    // --- PROGRESS BAR DRAG & SEEK LOGIC ---
-    let isDragging = false;
-    
-    function updateSeek(e) {
-        const rect = track.getBoundingClientRect();
-        let pos = (e.clientX - rect.left) / rect.width;
-        pos = Math.max(0, Math.min(1, pos));
-        document.getElementById('progressBar').style.width = (pos * 100) + '%';
-        if(video.duration) {
-            document.getElementById('currTime').innerText = formatTime(pos * video.duration);
-        }
-    }
-
-    track.addEventListener('pointerdown', (e) => {
-        if(isLocked) return;
-        isDragging = true;
-        updateSeek(e);
-    });
-
-    window.addEventListener('pointermove', (e) => {
-        if(isDragging) updateSeek(e);
-    });
-
-    window.addEventListener('pointerup', (e) => {
-        if(isDragging) {
-            isDragging = false;
-            const rect = track.getBoundingClientRect();
-            let pos = (e.clientX - rect.left) / rect.width;
-            pos = Math.max(0, Math.min(1, pos));
-            video.currentTime = pos * video.duration;
-            if(useExtAudio) extAudio.currentTime = video.currentTime;
+        switch(e.key) {
+            case ' ':
+            case 'MediaPlayPause':
+            case 'Enter': // For smart tv remotes
+                e.preventDefault(); playPauseBtn.click(); break;
+            case 'ArrowRight':
+            case 'MediaFastForward':
+                e.preventDefault(); triggerSkip(10); break;
+            case 'ArrowLeft':
+            case 'MediaRewind':
+                e.preventDefault(); triggerSkip(-10); break;
+            case 'f':
+            case 'F':
+                e.preventDefault(); toggleFullscreen(); break;
         }
     });
 
-    // --- TOUCH GESTURES (Volume / Brightness indicator & Double Tap) ---
-    let isSwiping = false, startX, startY, initVol;
-    
+    // --- SWIPE TO SEEK ---
+    let swipeStartX = 0;
+    let swipeStartTime = 0;
+    let isSwiping = false;
+
     wrap.addEventListener('touchstart', (e) => {
-        if(isLocked || e.touches.length > 1) return;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-        initVol = video.volume;
+        if (isLocked || e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track')) return;
+        swipeStartX = e.touches[0].clientX;
+        swipeStartTime = video.currentTime;
         isSwiping = false;
     }, {passive: true});
 
     wrap.addEventListener('touchmove', (e) => {
-        if(isLocked || !startX || !startY) return;
-        const dx = e.touches[0].clientX - startX;
-        const dy = e.touches[0].clientY - startY;
+        if (isLocked || swipeStartX === 0 || !video.duration) return;
+        const deltaX = e.touches[0].clientX - swipeStartX;
         
-        if(Math.abs(dx) > 30 || Math.abs(dy) > 30) isSwiping = true;
-
-        // Volume Gesture (Right side of screen swipe up/down)
-        if (Math.abs(dy) > Math.abs(dx) && startX > window.innerWidth / 2) {
-            let newVol = Math.max(0, Math.min(1, initVol - dy / 200));
-            video.volume = newVol;
-            if(useExtAudio) extAudio.volume = newVol;
-            gInfo.innerText = `Volume: ${Math.round(newVol * 100)}%`;
-            gInfo.style.opacity = '1';
+        if (Math.abs(deltaX) > 15) { 
+            isSwiping = true;
+            const seekOffset = deltaX * 0.15; 
+            let newTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
+            
+            centerControls.style.opacity = '0'; 
+            gInfo.style.display = 'block';
+            gInfo.innerText = `${formatTime(newTime)} / ${formatTime(video.duration)}`;
             e.preventDefault(); 
         }
     }, {passive: false});
 
-    wrap.addEventListener('touchend', () => {
-        gInfo.style.opacity = '0';
-        setTimeout(() => { isSwiping = false; }, 100);
-    });
-
-    // Double Tap to Forward/Rewind
-    let lastTap = 0;
     wrap.addEventListener('touchend', (e) => {
-        if(isLocked || isSwiping) return;
-        const currentTime = new Date().getTime();
-        const tapLength = currentTime - lastTap;
-        
-        if (tapLength < 300 && tapLength > 0) {
-            const rect = wrap.getBoundingClientRect();
-            const x = e.changedTouches[0].clientX - rect.left;
-            if (x > rect.width / 2) triggerSkip(10, e); // Right side: +10s
-            else triggerSkip(-10, e); // Left side: -10s
-            e.preventDefault();
+        if (isSwiping) {
+            const deltaX = e.changedTouches[0].clientX - swipeStartX;
+            const seekOffset = deltaX * 0.15;
+            video.currentTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
+            
+            centerControls.style.opacity = '1';
+            gInfo.style.display = 'none';
+            isSwiping = false;
         }
-        lastTap = currentTime;
+        swipeStartX = 0;
     });
 
-</script>
-</body>
-</html>me = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } }); track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
+    let isDragging = false, dragPct = 0; const tPreview = document.getElementById('timePreview');
+    function getEventX(e) { return e.touches && e.touches.length > 0 ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : e.clientX); }
+    function handleDrag(e) { const rect = track.getBoundingClientRect(); let pos = getEventX(e) - rect.left; pos = Math.max(0, Math.min(pos, rect.width)); dragPct = pos / rect.width; tPreview.innerText = formatTime(dragPct * (video.duration || 0)); tPreview.style.left = `${dragPct * 100}%`; tPreview.style.display = 'block'; if (isDragging) document.getElementById('progressBar').style.width = `${dragPct * 100}%`; }
+    track.addEventListener('mousedown', (e) => { isDragging = true; handleDrag(e); }); document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } }); track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
     track.addEventListener('touchstart', (e) => { isDragging = true; handleDrag(e); }); track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } });
 
     track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; });
@@ -712,7 +635,7 @@
     let timeoutId;
     function showUI() { 
         uiLayer.classList.remove('hidden'); 
-        wrap.style.cursor = 'default'; // Show cursor when UI is active
+        wrap.style.cursor = 'default'; 
         isUiVisible = true; 
         clearTimeout(timeoutId); 
         timeoutId = setTimeout(() => { 
@@ -723,7 +646,7 @@
     function hideUI() { 
         if(!video.paused) { 
             uiLayer.classList.add('hidden'); 
-            wrap.style.cursor = 'none'; // Hide cursor when UI fades
+            wrap.style.cursor = 'none'; 
             closeAllSheets(); 
             isUiVisible = false; 
         } 
@@ -740,10 +663,5 @@
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
-
-</body>
-</html>chstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
-</script>
-
 </body>
 </html>
