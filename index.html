@@ -210,8 +210,6 @@
 
     let videoData = null, nextEpId = null, isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
-    let isSeeking = false; // Naya flag TV sync issues rokne ke liye
-    let isIntendedToPlay = false; 
 
     let savedSpeed = parseFloat(localStorage.getItem('aniplay_speed')) || 1;
     let savedPitch = localStorage.getItem('aniplay_pitch') !== 'false';
@@ -252,15 +250,13 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
+                        // Optimized for Low Ram & Slow Internet (No heavy settings)
                         hlsEngine = new Hls({
                             enableWorker: true,
                             maxBufferLength: 30, 
                             maxMaxBufferLength: 60, 
                             maxBufferSize: 30 * 1000 * 1000, 
-                            capLevelToPlayerSize: true,
-                            manifestLoadingTimeOut: 10000,
-                            levelLoadingTimeOut: 10000,
-                            startLevel: -1 
+                            capLevelToPlayerSize: true
                         }); 
                         
                         hlsEngine.loadSource(mainUrl); 
@@ -394,43 +390,45 @@
 
     loadVideo();
 
-    // --- TV OPTIMIZED AUDIO/VIDEO SYNC ---
-    function syncAudioTime() {
-        if(useExtAudio && extAudio.readyState >= 1 && !isSeeking) {
-            // TV safe sync: TV decoders crash if you update currentTime continuously. 
-            // 1 second drift tolerance added.
-            if(Math.abs(video.currentTime - extAudio.currentTime) > 1.0) {
-                extAudio.currentTime = video.currentTime;
-            }
-        }
-    }
+    // --- ORIGINAL WORKING AUDIO LOGIC (Restored from your initial code) ---
+    let isIntendedToPlay = false;
+    let isSyncing = false;
+    let audioBufferTimeout = null;
+    let isAudioBuffering = false;
 
     playPauseBtn.addEventListener('click', (e) => { 
-        if(e) e.stopPropagation(); 
-        if(video.paused) { isIntendedToPlay = true; video.play().catch(()=>{}); } 
-        else { isIntendedToPlay = false; video.pause(); }
+        e.stopPropagation(); 
+        if(video.paused) {
+            isIntendedToPlay = true;
+            video.play().catch(()=>{});
+            if(useExtAudio) extAudio.play().catch(()=>{});
+        } else {
+            isIntendedToPlay = false;
+            video.pause();
+            if(useExtAudio) extAudio.pause();
+        }
     });
 
     video.addEventListener('play', () => { 
-        isIntendedToPlay = true;
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
-        if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{}); 
+        if(useExtAudio && isIntendedToPlay) extAudio.play().catch(()=>{}); 
     });
     
     video.addEventListener('pause', () => { 
-        isIntendedToPlay = false;
         document.getElementById('playIcon').style.display='block'; 
         document.getElementById('pauseIcon').style.display='none'; 
         showUI(); 
-        if(useExtAudio && !extAudio.paused) extAudio.pause(); 
+        if(useExtAudio && !isIntendedToPlay) extAudio.pause(); 
     });
 
-    video.addEventListener('seeking', () => { isSeeking = true; });
-    video.addEventListener('seeked', () => {
-        isSeeking = false;
-        if(useExtAudio) extAudio.currentTime = video.currentTime;
+    video.addEventListener('seeked', () => { 
+        if(useExtAudio && extAudio.readyState >= 1) {
+            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.3) {
+                extAudio.currentTime = video.currentTime;
+            }
+        }
     });
 
     video.addEventListener('waiting', () => { 
@@ -440,53 +438,70 @@
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && extAudio.paused && isIntendedToPlay) extAudio.play().catch(()=>{});
+        if(useExtAudio && isIntendedToPlay) extAudio.play().catch(()=>{});
     });
 
-    // TV Fix: Replaced 'canplay' logic with 'playing' to prevent infinite loops
     extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && isIntendedToPlay && !video.paused) {
-            spinner.style.display = 'block';
-            video.pause(); 
+        if(useExtAudio && isIntendedToPlay) {
+            isAudioBuffering = true;
+            clearTimeout(audioBufferTimeout);
+            audioBufferTimeout = setTimeout(() => {
+                if (isAudioBuffering) { spinner.style.display = 'block'; video.pause(); }
+            }, 3000); 
         }
     });
 
+    extAudio.addEventListener('canplay', () => {
+        if(useExtAudio && isIntendedToPlay) {
+            isAudioBuffering = false;
+            clearTimeout(audioBufferTimeout);
+            if (video.paused) { spinner.style.display = 'none'; video.play().catch(()=>{}); }
+        }
+    });
+    
     extAudio.addEventListener('playing', () => {
-        if(useExtAudio && isIntendedToPlay && video.paused) {
+        isAudioBuffering = false;
+        clearTimeout(audioBufferTimeout);
+        if(useExtAudio && isIntendedToPlay) {
             spinner.style.display = 'none';
-            video.play().catch(()=>{});
+            if(video.paused) video.play().catch(()=>{});
         }
     });
 
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
-    // Light background sync so it doesn't freeze the UI on TVs
-    setInterval(() => {
-        if(!video.paused && useExtAudio) syncAudioTime();
-    }, 2000);
-
+    let lastSyncTime = 0;
     let uiUpdateScheduled = false;
+
     video.addEventListener('timeupdate', () => {
+        const now = performance.now();
+        // TV & Mobile Stutter Fix: Increased drift tolerance to 0.5s so it doesn't force sync constantly
+        if (useExtAudio && now - lastSyncTime > 1500) {
+            if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.5 && !isSyncing) {
+                isSyncing = true;
+                extAudio.currentTime = video.currentTime;
+                setTimeout(() => { isSyncing = false; }, 300);
+            }
+            lastSyncTime = now;
+        }
+
+        // Hardware Accelerated UI updates (Fixes the video frame drop issue)
         if (!uiUpdateScheduled && !isDragging && !isSwiping) {
             uiUpdateScheduled = true;
             requestAnimationFrame(() => {
-                updateProgressUI();
+                const curr = video.currentTime, dur = video.duration || 1; 
+                document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
+                if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
+                document.getElementById('currTime').innerText = formatTime(curr); 
+                document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
+                
+                if(Math.floor(curr)%5===0 && epId) localStorage.setItem(`vid_${epId}`, curr);
+                
+                checkSkipIntroOutro(curr);
                 uiUpdateScheduled = false;
             });
         }
     });
-
-    function updateProgressUI() {
-        const curr = video.currentTime, dur = video.duration || 1; 
-        document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
-        if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
-        document.getElementById('currTime').innerText = formatTime(curr); 
-        document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
-        
-        if(Math.floor(curr)%5===0 && epId) localStorage.setItem(`vid_${epId}`, curr);
-        
-        checkSkipIntroOutro(curr);
-    }
 
     function checkSkipIntroOutro(ct) {
         let showSkip = false, skipTarget = 0, btnText = "";
@@ -519,13 +534,9 @@
     }
 
     window.triggerSkip = (amount, e) => {
-        if(e) e.stopPropagation(); if(isLocked) return; 
-        isSeeking = true;
-        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + amount)); 
-        showUI(); 
+        if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); 
         if (amount > 0) { const btn = document.getElementById('skipFwdBtn'); const txt = document.getElementById('floatRightTxt'); btn.classList.remove('rotate-fwd'); txt.classList.remove('anim-float-fwd'); void btn.offsetWidth; btn.classList.add('rotate-fwd'); txt.classList.add('anim-float-fwd'); } 
         else { const btn = document.getElementById('skipBackBtn'); const txt = document.getElementById('floatLeftTxt'); btn.classList.remove('rotate-bwd'); txt.classList.remove('anim-float-bwd'); void btn.offsetWidth; btn.classList.add('rotate-bwd'); txt.classList.add('anim-float-bwd'); }
-        setTimeout(() => isSeeking = false, 500);
     };
 
     window.toggleFullscreen = () => { if (!document.fullscreenElement) { wrap.requestFullscreen().catch(()=>{}); screen.orientation?.lock('landscape').catch(()=>{}); } else { document.exitFullscreen().catch(()=>{}); screen.orientation?.unlock(); } };
@@ -557,32 +568,20 @@
     window.selectHlsAudio = (elem, trackIndex) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.audioTrack = trackIndex; closeAllSheets(); };
     window.selectDbSub = (elem, trackIndex) => { document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'disabled'; if (trackIndex !== -1 && video.textTracks[trackIndex]) video.textTracks[trackIndex].mode = 'showing'; closeAllSheets(); };
     
-    // TV Fix: Audio change karte waqt safe loading
+    // Original Audio Select Method (Works properly)
     window.selectAudio = (elem, url) => { 
         document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); 
         elem.classList.add('active'); 
-        
         if(url) { 
             useExtAudio = true; 
             video.muted = true; 
             extAudio.src = url; 
-            extAudio.load(); // Force load for TV decoder
-            
-            let wasPlaying = !video.paused;
-            if(wasPlaying) video.pause(); // Video temporarily roko taaki audio load ho sake
-            spinner.style.display = 'block';
-            
             extAudio.currentTime = video.currentTime; 
-            
-            if(wasPlaying) {
-                isIntendedToPlay = true;
-                extAudio.play().catch(()=>{}); 
-            }
+            if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } 
         } else { 
             useExtAudio = false; 
             video.muted = false; 
             extAudio.pause(); 
-            if(isIntendedToPlay && video.paused) video.play().catch(()=>{});
         } 
         closeAllSheets(); 
     };
@@ -596,6 +595,7 @@
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
     window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
 
+    // TV Remote Support
     document.addEventListener('keydown', (e) => {
         if(isLocked) return;
         switch(e.key) {
@@ -624,7 +624,6 @@
         swipeStartX = e.touches[0].clientX;
         swipeStartTime = video.currentTime;
         isSwiping = false;
-        isSeeking = true;
     }, {passive: true});
 
     wrap.addEventListener('touchmove', (e) => {
@@ -644,7 +643,6 @@
     }, {passive: false});
 
     wrap.addEventListener('touchend', (e) => {
-        isSeeking = false;
         if (isSwiping) {
             const deltaX = e.changedTouches[0].clientX - swipeStartX;
             const seekOffset = deltaX * 0.15;
@@ -660,15 +658,10 @@
     let isDragging = false, dragPct = 0; const tPreview = document.getElementById('timePreview');
     function getEventX(e) { return e.touches && e.touches.length > 0 ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : e.clientX); }
     function handleDrag(e) { const rect = track.getBoundingClientRect(); let pos = getEventX(e) - rect.left; pos = Math.max(0, Math.min(pos, rect.width)); dragPct = pos / rect.width; tPreview.innerText = formatTime(dragPct * (video.duration || 0)); tPreview.style.left = `${dragPct * 100}%`; tPreview.style.display = 'block'; if (isDragging) document.getElementById('progressBar').style.width = `${dragPct * 100}%`; }
-    track.addEventListener('mousedown', (e) => { isDragging = true; isSeeking = true; handleDrag(e); }); 
-    document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); 
-    document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; isSeeking = false; tPreview.style.display = 'none'; } }); 
-    track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
-    track.addEventListener('touchstart', (e) => { isDragging = true; isSeeking = true; handleDrag(e); }); 
-    track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); 
-    track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; isSeeking = false; tPreview.style.display = 'none'; } });
+    track.addEventListener('mousedown', (e) => { isDragging = true; handleDrag(e); }); document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } }); track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
+    track.addEventListener('touchstart', (e) => { isDragging = true; handleDrag(e); }); track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } });
 
-    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; isSeeking = true; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; setTimeout(() => isSeeking = false, 500); });
+    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; });
     function formatTime(sec) { if (isNaN(sec)) return "00:00"; let h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0'), s = Math.floor(sec % 60).toString().padStart(2, '0'); return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`; }
 
     let timeoutId;
@@ -701,6 +694,9 @@
     });
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
+</script>
+</body>
+</html> wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
 </body>
 </html>
