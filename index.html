@@ -210,6 +210,8 @@
 
     let videoData = null, nextEpId = null, isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
+    let isSeeking = false; // Naya flag TV sync issues rokne ke liye
+    let isIntendedToPlay = false; 
 
     let savedSpeed = parseFloat(localStorage.getItem('aniplay_speed')) || 1;
     let savedPitch = localStorage.getItem('aniplay_pitch') !== 'false';
@@ -250,12 +252,11 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
-                        // SUPER LIGHTWEIGHT HLS CONFIG TO PREVENT FRAME DROPS
                         hlsEngine = new Hls({
                             enableWorker: true,
-                            maxBufferLength: 30, // Reduced to prevent memory lag
+                            maxBufferLength: 30, 
                             maxMaxBufferLength: 60, 
-                            maxBufferSize: 30 * 1000 * 1000, // 30MB Limit
+                            maxBufferSize: 30 * 1000 * 1000, 
                             capLevelToPlayerSize: true,
                             manifestLoadingTimeOut: 10000,
                             levelLoadingTimeOut: 10000,
@@ -291,14 +292,11 @@
                             if (data.fatal) {
                                 switch(data.type) {
                                     case Hls.ErrorTypes.NETWORK_ERROR:
-                                        hlsEngine.startLoad();
-                                        break;
+                                        hlsEngine.startLoad(); break;
                                     case Hls.ErrorTypes.MEDIA_ERROR:
-                                        hlsEngine.recoverMediaError();
-                                        break;
+                                        hlsEngine.recoverMediaError(); break;
                                     default:
-                                        hlsEngine.destroy();
-                                        break;
+                                        hlsEngine.destroy(); break;
                                 }
                             }
                         });
@@ -396,11 +394,12 @@
 
     loadVideo();
 
-    // --- OPTIMIZED AUDIO/VIDEO SYNC (No Frame Drops) ---
+    // --- TV OPTIMIZED AUDIO/VIDEO SYNC ---
     function syncAudioTime() {
-        if(useExtAudio && extAudio.readyState >= 1) {
-            // Increased threshold to 0.4s to prevent micro-stutter loops
-            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.4) {
+        if(useExtAudio && extAudio.readyState >= 1 && !isSeeking) {
+            // TV safe sync: TV decoders crash if you update currentTime continuously. 
+            // 1 second drift tolerance added.
+            if(Math.abs(video.currentTime - extAudio.currentTime) > 1.0) {
                 extAudio.currentTime = video.currentTime;
             }
         }
@@ -408,11 +407,12 @@
 
     playPauseBtn.addEventListener('click', (e) => { 
         if(e) e.stopPropagation(); 
-        if(video.paused) { video.play().catch(()=>{}); } 
-        else { video.pause(); }
+        if(video.paused) { isIntendedToPlay = true; video.play().catch(()=>{}); } 
+        else { isIntendedToPlay = false; video.pause(); }
     });
 
     video.addEventListener('play', () => { 
+        isIntendedToPlay = true;
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
@@ -420,14 +420,18 @@
     });
     
     video.addEventListener('pause', () => { 
+        isIntendedToPlay = false;
         document.getElementById('playIcon').style.display='block'; 
         document.getElementById('pauseIcon').style.display='none'; 
         showUI(); 
         if(useExtAudio && !extAudio.paused) extAudio.pause(); 
     });
 
-    video.addEventListener('seeking', syncAudioTime);
-    video.addEventListener('seeked', syncAudioTime);
+    video.addEventListener('seeking', () => { isSeeking = true; });
+    video.addEventListener('seeked', () => {
+        isSeeking = false;
+        if(useExtAudio) extAudio.currentTime = video.currentTime;
+    });
 
     video.addEventListener('waiting', () => { 
         spinner.style.display = 'block'; 
@@ -436,35 +440,35 @@
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
+        if(useExtAudio && extAudio.paused && isIntendedToPlay) extAudio.play().catch(()=>{});
     });
 
+    // TV Fix: Replaced 'canplay' logic with 'playing' to prevent infinite loops
     extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && !video.paused) {
-            video.pause(); 
+        if(useExtAudio && isIntendedToPlay && !video.paused) {
             spinner.style.display = 'block';
+            video.pause(); 
         }
     });
 
-    extAudio.addEventListener('canplay', () => {
-        if(useExtAudio && video.paused && !document.getElementById('playIcon').style.display.includes('block')) {
+    extAudio.addEventListener('playing', () => {
+        if(useExtAudio && isIntendedToPlay && video.paused) {
+            spinner.style.display = 'none';
             video.play().catch(()=>{});
         }
     });
 
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
-    // Background sync check so it doesn't block the video rendering thread
+    // Light background sync so it doesn't freeze the UI on TVs
     setInterval(() => {
         if(!video.paused && useExtAudio) syncAudioTime();
-    }, 4000);
+    }, 2000);
 
-    // --- HARDWARE ACCELERATED UI UPDATES ---
     let uiUpdateScheduled = false;
     video.addEventListener('timeupdate', () => {
         if (!uiUpdateScheduled && !isDragging && !isSwiping) {
             uiUpdateScheduled = true;
-            // requestAnimationFrame forces UI rendering to sync with browser refresh rate
             requestAnimationFrame(() => {
                 updateProgressUI();
                 uiUpdateScheduled = false;
@@ -516,10 +520,12 @@
 
     window.triggerSkip = (amount, e) => {
         if(e) e.stopPropagation(); if(isLocked) return; 
+        isSeeking = true;
         video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + amount)); 
         showUI(); 
         if (amount > 0) { const btn = document.getElementById('skipFwdBtn'); const txt = document.getElementById('floatRightTxt'); btn.classList.remove('rotate-fwd'); txt.classList.remove('anim-float-fwd'); void btn.offsetWidth; btn.classList.add('rotate-fwd'); txt.classList.add('anim-float-fwd'); } 
         else { const btn = document.getElementById('skipBackBtn'); const txt = document.getElementById('floatLeftTxt'); btn.classList.remove('rotate-bwd'); txt.classList.remove('anim-float-bwd'); void btn.offsetWidth; btn.classList.add('rotate-bwd'); txt.classList.add('anim-float-bwd'); }
+        setTimeout(() => isSeeking = false, 500);
     };
 
     window.toggleFullscreen = () => { if (!document.fullscreenElement) { wrap.requestFullscreen().catch(()=>{}); screen.orientation?.lock('landscape').catch(()=>{}); } else { document.exitFullscreen().catch(()=>{}); screen.orientation?.unlock(); } };
@@ -551,19 +557,32 @@
     window.selectHlsAudio = (elem, trackIndex) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.audioTrack = trackIndex; closeAllSheets(); };
     window.selectDbSub = (elem, trackIndex) => { document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'disabled'; if (trackIndex !== -1 && video.textTracks[trackIndex]) video.textTracks[trackIndex].mode = 'showing'; closeAllSheets(); };
     
+    // TV Fix: Audio change karte waqt safe loading
     window.selectAudio = (elem, url) => { 
         document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); 
         elem.classList.add('active'); 
+        
         if(url) { 
             useExtAudio = true; 
             video.muted = true; 
             extAudio.src = url; 
+            extAudio.load(); // Force load for TV decoder
+            
+            let wasPlaying = !video.paused;
+            if(wasPlaying) video.pause(); // Video temporarily roko taaki audio load ho sake
+            spinner.style.display = 'block';
+            
             extAudio.currentTime = video.currentTime; 
-            if(!video.paused) extAudio.play().catch(()=>{}); 
+            
+            if(wasPlaying) {
+                isIntendedToPlay = true;
+                extAudio.play().catch(()=>{}); 
+            }
         } else { 
             useExtAudio = false; 
             video.muted = false; 
             extAudio.pause(); 
+            if(isIntendedToPlay && video.paused) video.play().catch(()=>{});
         } 
         closeAllSheets(); 
     };
@@ -577,7 +596,6 @@
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
     window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
 
-    // --- SMART TV KEYBOARD / REMOTE CONTROLS ---
     document.addEventListener('keydown', (e) => {
         if(isLocked) return;
         switch(e.key) {
@@ -597,7 +615,6 @@
         }
     });
 
-    // --- SWIPE TO SEEK ---
     let swipeStartX = 0;
     let swipeStartTime = 0;
     let isSwiping = false;
@@ -607,6 +624,7 @@
         swipeStartX = e.touches[0].clientX;
         swipeStartTime = video.currentTime;
         isSwiping = false;
+        isSeeking = true;
     }, {passive: true});
 
     wrap.addEventListener('touchmove', (e) => {
@@ -626,6 +644,7 @@
     }, {passive: false});
 
     wrap.addEventListener('touchend', (e) => {
+        isSeeking = false;
         if (isSwiping) {
             const deltaX = e.changedTouches[0].clientX - swipeStartX;
             const seekOffset = deltaX * 0.15;
@@ -641,10 +660,15 @@
     let isDragging = false, dragPct = 0; const tPreview = document.getElementById('timePreview');
     function getEventX(e) { return e.touches && e.touches.length > 0 ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : e.clientX); }
     function handleDrag(e) { const rect = track.getBoundingClientRect(); let pos = getEventX(e) - rect.left; pos = Math.max(0, Math.min(pos, rect.width)); dragPct = pos / rect.width; tPreview.innerText = formatTime(dragPct * (video.duration || 0)); tPreview.style.left = `${dragPct * 100}%`; tPreview.style.display = 'block'; if (isDragging) document.getElementById('progressBar').style.width = `${dragPct * 100}%`; }
-    track.addEventListener('mousedown', (e) => { isDragging = true; handleDrag(e); }); document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } }); track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
-    track.addEventListener('touchstart', (e) => { isDragging = true; handleDrag(e); }); track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } });
+    track.addEventListener('mousedown', (e) => { isDragging = true; isSeeking = true; handleDrag(e); }); 
+    document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); 
+    document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; isSeeking = false; tPreview.style.display = 'none'; } }); 
+    track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
+    track.addEventListener('touchstart', (e) => { isDragging = true; isSeeking = true; handleDrag(e); }); 
+    track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); 
+    track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; isSeeking = false; tPreview.style.display = 'none'; } });
 
-    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; });
+    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; isSeeking = true; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; setTimeout(() => isSeeking = false, 500); });
     function formatTime(sec) { if (isNaN(sec)) return "00:00"; let h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0'), s = Math.floor(sec % 60).toString().padStart(2, '0'); return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`; }
 
     let timeoutId;
