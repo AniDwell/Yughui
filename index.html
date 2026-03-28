@@ -250,10 +250,11 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
+                        // OPTIMIZED HLS CONFIG: Prevents memory bloat & frame drops
                         hlsEngine = new Hls({
                             maxMaxBufferLength: 300, 
                             backBufferLength: 90,   
-                            maxBufferSize: 30 * 1000 * 1000, 
+                            maxBufferSize: 30 * 1000 * 1000, // Reduced to 30MB for smooth mobile playback
                             capLevelToPlayerSize: true 
                         }); 
                         
@@ -323,18 +324,8 @@
                 const savedTime = localStorage.getItem(`vid_${epId}`); 
                 if(savedTime) {
                     const st = parseFloat(savedTime);
-                    if(video.readyState >= 1) {
-                        video.currentTime = st;
-                        if (useExtAudio) extAudio.currentTime = st;
-                    }
-                    else {
-                        video.addEventListener('loadedmetadata', () => { 
-                            if (video.currentTime === 0) {
-                                video.currentTime = st; 
-                                if (useExtAudio) extAudio.currentTime = st;
-                            }
-                        }, { once: true });
-                    }
+                    if(video.readyState >= 1) video.currentTime = st;
+                    else video.addEventListener('loadedmetadata', () => { if (video.currentTime === 0) video.currentTime = st; }, { once: true });
                 }
                 setPlaybackSpeed(savedSpeed); applyScaleMode(savedScaleMode, false);
 
@@ -355,26 +346,21 @@
         const aList = document.getElementById('audioList');
         aList.innerHTML = ''; 
 
-        // Default video audio hata diya gaya hai.
-        // Agar external audios hain, toh 1st audio automatically set ho jayega.
+        // Add Default Video Audio Option
+        const defItem = document.createElement('div'); 
+        defItem.className = 'bs-item' + (!useExtAudio ? ' active' : '');
+        defItem.innerText = 'Default Video Audio';
+        defItem.onclick = function() { selectAudio(this, null); };
+        aList.appendChild(defItem);
 
         if(data.audios && data.audios.length > 0) {
             data.audios.forEach((aud, index) => {
                 const item = document.createElement('div'); 
-                item.className = 'bs-item' + (index === 0 ? ' active' : '');
+                item.className = 'bs-item';
                 item.innerText = aud.language || aud.name || 'External Audio ' + (index + 1);
                 item.onclick = function() { selectAudio(this, aud.url); }; 
                 aList.appendChild(item);
             });
-            
-            // By default 1st audio track play karna
-            useExtAudio = true;
-            video.muted = true;
-            extAudio.src = data.audios[0].url;
-            extAudio.load();
-        } else {
-            useExtAudio = false;
-            video.muted = false;
         }
     }
 
@@ -390,6 +376,7 @@
 
     loadVideo();
 
+    // --- OPTIMIZED FAULT-TOLERANT SYNC LOGIC ---
     let isIntendedToPlay = false;
     let isSyncing = false;
     let audioBufferTimeout = null;
@@ -400,7 +387,7 @@
         if(video.paused) {
             isIntendedToPlay = true;
             video.play().catch(()=>{});
-            if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
+            if(useExtAudio) extAudio.play().catch(()=>{});
         } else {
             isIntendedToPlay = false;
             video.pause();
@@ -412,7 +399,7 @@
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
+        if(useExtAudio && isIntendedToPlay) {
             extAudio.play().catch(()=>{}); 
         }
     });
@@ -439,7 +426,7 @@
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
+        if(useExtAudio && isIntendedToPlay) {
             extAudio.play().catch(()=>{});
         }
     });
@@ -474,10 +461,8 @@
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
     let lastSyncTime = 0;
-    let uiUpdateScheduled = false;
-
     video.addEventListener('timeupdate', () => {
-        // Throttled Audio Syncing
+        // Throttled Audio Syncing to prevent frame drops (1 check per second)
         const now = performance.now();
         if (useExtAudio && now - lastSyncTime > 1000) {
             if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.3 && !isSyncing) {
@@ -488,50 +473,44 @@
             lastSyncTime = now;
         }
 
-        // Hardware Accelerated UI updates (Fixes Video Stuttering)
-        if (!uiUpdateScheduled && !isDragging && !isSwiping) {
-            uiUpdateScheduled = true;
-            requestAnimationFrame(() => {
-                const curr = video.currentTime, dur = video.duration || 1; 
-                document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
-                if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
-                document.getElementById('currTime').innerText = formatTime(curr); 
-                document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
-                
-                if(Math.floor(curr)%5===0 && epId) localStorage.setItem(`vid_${epId}`, curr);
-                
-                // Check Intro / Outro Skip
-                let showSkip = false, skipTarget = 0, btnText = "";
-                let actionType = "skip"; 
-
-                if (videoData) {
-                    if (videoData.introEnd && videoData.introEnd > 0 && curr >= videoData.introStart && curr <= videoData.introEnd) {
-                        showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
-                    }
-                    if (videoData.outroEnd && videoData.outroEnd > 0 && curr >= videoData.outroStart && curr <= videoData.outroEnd) {
-                        showSkip = true; skipTarget = videoData.outroEnd;
-                        if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
-                        else { btnText = "Skip Outro"; actionType = "skip"; }
-                    }
-                }
-
-                if(showSkip && !isLocked) { 
-                    skipPopup.style.display = 'block'; 
-                    skipPopup.innerText = btnText;
-                    skipPopup.onclick = async (e) => { 
-                        e.stopPropagation(); skipPopup.style.display = 'none'; 
-                        if(actionType === "next") {
-                            skipPopup.innerText = "Loading..."; skipPopup.style.display = 'block';
-                            window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
-                        } else {
-                            if(btnText === "Skip Outro") video.currentTime = video.duration; else video.currentTime = skipTarget; 
-                        }
-                    }; 
-                } else { skipPopup.style.display = 'none'; }
-                
-                uiUpdateScheduled = false;
-            });
+        if(!isDragging && !isSwiping) { 
+            const curr = video.currentTime, dur = video.duration || 1; 
+            document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
+            if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
+            document.getElementById('currTime').innerText = formatTime(curr); 
+            document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
         }
+        
+        if(Math.floor(video.currentTime)%5===0 && epId) localStorage.setItem(`vid_${epId}`, video.currentTime);
+        
+        let showSkip = false, skipTarget = 0, btnText = "";
+        let actionType = "skip"; 
+
+        if (videoData) {
+            const ct = video.currentTime;
+            if (videoData.introEnd && videoData.introEnd > 0 && ct >= videoData.introStart && ct <= videoData.introEnd) {
+                showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
+            }
+            if (videoData.outroEnd && videoData.outroEnd > 0 && ct >= videoData.outroStart && ct <= videoData.outroEnd) {
+                showSkip = true; skipTarget = videoData.outroEnd;
+                if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
+                else { btnText = "Skip Outro"; actionType = "skip"; }
+            }
+        }
+
+        if(showSkip && !isLocked) { 
+            skipPopup.style.display = 'block'; 
+            skipPopup.innerText = btnText;
+            skipPopup.onclick = async (e) => { 
+                e.stopPropagation(); skipPopup.style.display = 'none'; 
+                if(actionType === "next") {
+                    skipPopup.innerText = "Loading..."; skipPopup.style.display = 'block';
+                    window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
+                } else {
+                    if(btnText === "Skip Outro") video.currentTime = video.duration; else video.currentTime = skipTarget; 
+                }
+            }; 
+        } else { skipPopup.style.display = 'none'; }
     });
 
     window.triggerSkip = (amount, e) => {
@@ -577,7 +556,7 @@
             video.muted = true; 
             extAudio.src = url; 
             extAudio.currentTime = video.currentTime; 
-            if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } 
+            if(!video.paused) extAudio.play(); 
         } else { 
             useExtAudio = false; 
             video.muted = false; 
@@ -675,6 +654,10 @@
     });
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
+</script>
+
+</body>
+</html>chstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
 </body>
 </html>
