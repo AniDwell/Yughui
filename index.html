@@ -187,11 +187,21 @@
     </div>
 </div>
 <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
-    const videoApp = initializeApp({ apiKey: "AIzaSyAPLj8br4ZbM0OSRCQ80GNqyjXZ6fRAKOA", authDomain: "wuhq8q8q.firebaseapp.com", projectId: "wuhq8q8q", storageBucket: "wuhq8q8q.firebasestorage.app" }, "videoApp");
-    const videoDb = getFirestore(videoApp);
+    // --- Firebase Dual Setup ---
+    const contentConfig = { apiKey: "AIzaSyAPLj8br4ZbM0OSRCQ80GNqyjXZ6fRAKOA", authDomain: "wuhq8q8q.firebaseapp.com", projectId: "wuhq8q8q" };
+    const userConfig = { apiKey: "AIzaSyAF0DQCa4mXJfHGNaRMn1gOrj4GDfJxUao", authDomain: "aniplay-43240.firebaseapp.com", projectId: "aniplay-43240" };
+
+    const existingApps = getApps();
+    const userApp = existingApps.find(a => a.name === "[DEFAULT]") || initializeApp(userConfig);
+    const contentApp = existingApps.find(a => a.name === "contentApp") || initializeApp(contentConfig, "contentApp");
+
+    const contentDb = getFirestore(contentApp); 
+    const userDb = getFirestore(userApp);       
+    const auth = getAuth(userApp);
 
     const params = new URLSearchParams(window.location.search);
     const seriesId = params.get('seriesId');
@@ -211,13 +221,50 @@
     let videoData = null, nextEpId = null, isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
 
+    // --- User Sync State ---
+    let currentUid = null;
+    let currentProfileId = null;
+    let dbSavedTime = null;
+    let authChecked = false;
+    let isIntendedToPlay = true; // Auto-play enabled by default
+
     let savedSpeed = parseFloat(localStorage.getItem('aniplay_speed')) || 1;
     let savedPitch = localStorage.getItem('aniplay_pitch') !== 'false';
     let savedScaleMode = parseInt(localStorage.getItem('aniplay_scale')) || 0;
 
     video.preservesPitch = savedPitch;
+    video.autoplay = true; // Auto-play enabled
     if(!savedPitch) document.getElementById('pitchToggle').classList.remove('active');
 
+    // --- 1. Check Auth and Fetch Saved Time First ---
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUid = user.uid;
+            currentProfileId = sessionStorage.getItem('active_profile_id') || 'profile_0';
+            
+            // Fetch cross-device resume time from DB
+            try {
+                const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
+                const snap = await getDoc(profileRef);
+                if (snap.exists() && snap.data().continueWatching && snap.data().continueWatching[seriesId]) {
+                    const cw = snap.data().continueWatching[seriesId];
+                    if (cw.epId === epId && cw.currentTime > 0) {
+                        dbSavedTime = cw.currentTime;
+                    }
+                }
+            } catch (err) { console.error("Error fetching DB resume time:", err); }
+        }
+
+        if (!authChecked) {
+            authChecked = true;
+            loadVideo(); // Load video after auth check
+        }
+    });
+
+    // Fallback if auth takes too long
+    setTimeout(() => { if (!authChecked) { authChecked = true; loadVideo(); } }, 2000);
+
+    // --- 2. Load Video Logic ---
     async function loadVideo() {
         if(!seriesId || !epId) { 
             document.getElementById('tTitle').innerText = "URL ERROR: IDs Missing"; 
@@ -230,7 +277,7 @@
             document.getElementById('tSub').innerText = "Loading from Database...";
             spinner.style.display = 'block';
 
-            const epRef = doc(videoDb, "series", seriesId, "episodes", epId);
+            const epRef = doc(contentDb, "series", seriesId, "episodes", epId);
             const snap = await getDoc(epRef);
 
             if(snap.exists()) {
@@ -250,11 +297,10 @@
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
                         
-                        // OPTIMIZED HLS CONFIG: Prevents memory bloat & frame drops
                         hlsEngine = new Hls({
                             maxMaxBufferLength: 300, 
                             backBufferLength: 90,   
-                            maxBufferSize: 30 * 1000 * 1000, // Reduced to 30MB for smooth mobile playback
+                            maxBufferSize: 30 * 1000 * 1000, 
                             capLevelToPlayerSize: true 
                         }); 
                         
@@ -266,6 +312,8 @@
                             data.levels.forEach((level, index) => { 
                                 qList.innerHTML += `<div class="bs-item" onclick="selectHlsQuality(this, ${index})">${level.height}p</div>`; 
                             });
+                            // Trigger Auto-play
+                            video.play().catch(e => console.log("Autoplay blocked by browser."));
                         });
 
                         hlsEngine.on(Hls.Events.AUDIO_TRACKS_UPDATED, function(event, data) {
@@ -285,6 +333,7 @@
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                         video.src = mainUrl;
                         loadDbAudios(videoData);
+                        video.play().catch(e => console.log("Autoplay blocked."));
                     }
                 } 
                 else {
@@ -301,6 +350,7 @@
                             item.onclick = function() { selectQuality(this, src.url); }; 
                             qList.appendChild(item);
                         });
+                        video.play().catch(e => console.log("Autoplay blocked."));
                     } else {
                         document.getElementById('tTitle').innerText = "No Sources Found";
                         document.getElementById('tSub').innerText = "This episode has no videos attached in DB.";
@@ -321,12 +371,23 @@
                 document.getElementById('tTitle').innerText = videoData.title || "Unknown Episode";
                 document.getElementById('tSub').innerText = videoData.description || "Episode details unavailable.";
 
-                const savedTime = localStorage.getItem(`vid_${epId}`); 
-                if(savedTime) {
-                    const st = parseFloat(savedTime);
-                    if(video.readyState >= 1) video.currentTime = st;
-                    else video.addEventListener('loadedmetadata', () => { if (video.currentTime === 0) video.currentTime = st; }, { once: true });
+                // Priority: 1. DB Cross-Device Time, 2. Local Storage Time
+                let targetTime = dbSavedTime || localStorage.getItem(`vid_${epId}`);
+                if(targetTime) {
+                    const st = parseFloat(targetTime);
+                    if(video.readyState >= 1) {
+                        video.currentTime = st;
+                        if (useExtAudio) extAudio.currentTime = st;
+                    } else {
+                        video.addEventListener('loadedmetadata', () => { 
+                            if (video.currentTime === 0) {
+                                video.currentTime = st; 
+                                if (useExtAudio) extAudio.currentTime = st;
+                            }
+                        }, { once: true });
+                    }
                 }
+                
                 setPlaybackSpeed(savedSpeed); applyScaleMode(savedScaleMode, false);
 
             } else {
@@ -346,38 +407,35 @@
         const aList = document.getElementById('audioList');
         aList.innerHTML = ''; 
 
-        // Add Default Video Audio Option
-        const defItem = document.createElement('div'); 
-        defItem.className = 'bs-item' + (!useExtAudio ? ' active' : '');
-        defItem.innerText = 'Default Video Audio';
-        defItem.onclick = function() { selectAudio(this, null); };
-        aList.appendChild(defItem);
-
         if(data.audios && data.audios.length > 0) {
             data.audios.forEach((aud, index) => {
                 const item = document.createElement('div'); 
-                item.className = 'bs-item';
+                item.className = 'bs-item' + (index === 0 ? ' active' : '');
                 item.innerText = aud.language || aud.name || 'External Audio ' + (index + 1);
                 item.onclick = function() { selectAudio(this, aud.url); }; 
                 aList.appendChild(item);
             });
+            
+            useExtAudio = true;
+            video.muted = true;
+            extAudio.src = data.audios[0].url;
+            extAudio.load();
+        } else {
+            useExtAudio = false;
+            video.muted = false;
         }
     }
 
     async function checkNextEpisode() {
         try {
             const currentOrder = videoData.orderIndex || 0;
-            const epRef = collection(videoDb, "series", seriesId, "episodes");
+            const epRef = collection(contentDb, "series", seriesId, "episodes");
             const q = query(epRef, where("orderIndex", ">", currentOrder), orderBy("orderIndex", "asc"), limit(1));
             const querySnapshot = await getDocs(q);
             if(!querySnapshot.empty) { nextEpId = querySnapshot.docs[0].id; }
         } catch(e) {}
     }
 
-    loadVideo();
-
-    // --- OPTIMIZED FAULT-TOLERANT SYNC LOGIC ---
-    let isIntendedToPlay = false;
     let isSyncing = false;
     let audioBufferTimeout = null;
     let isAudioBuffering = false;
@@ -387,7 +445,7 @@
         if(video.paused) {
             isIntendedToPlay = true;
             video.play().catch(()=>{});
-            if(useExtAudio) extAudio.play().catch(()=>{});
+            if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
         } else {
             isIntendedToPlay = false;
             video.pause();
@@ -399,7 +457,7 @@
         document.getElementById('playIcon').style.display='none'; 
         document.getElementById('pauseIcon').style.display='block'; 
         hideUI(); 
-        if(useExtAudio && isIntendedToPlay) {
+        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
             extAudio.play().catch(()=>{}); 
         }
     });
@@ -426,7 +484,7 @@
     
     video.addEventListener('playing', () => { 
         spinner.style.display = 'none'; 
-        if(useExtAudio && isIntendedToPlay) {
+        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
             extAudio.play().catch(()=>{});
         }
     });
@@ -461,8 +519,9 @@
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
 
     let lastSyncTime = 0;
+    let uiUpdateScheduled = false;
+
     video.addEventListener('timeupdate', () => {
-        // Throttled Audio Syncing to prevent frame drops (1 check per second)
         const now = performance.now();
         if (useExtAudio && now - lastSyncTime > 1000) {
             if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.3 && !isSyncing) {
@@ -473,44 +532,68 @@
             lastSyncTime = now;
         }
 
-        if(!isDragging && !isSwiping) { 
-            const curr = video.currentTime, dur = video.duration || 1; 
-            document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
-            if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
-            document.getElementById('currTime').innerText = formatTime(curr); 
-            document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
-        }
-        
-        if(Math.floor(video.currentTime)%5===0 && epId) localStorage.setItem(`vid_${epId}`, video.currentTime);
-        
-        let showSkip = false, skipTarget = 0, btnText = "";
-        let actionType = "skip"; 
-
-        if (videoData) {
-            const ct = video.currentTime;
-            if (videoData.introEnd && videoData.introEnd > 0 && ct >= videoData.introStart && ct <= videoData.introEnd) {
-                showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
-            }
-            if (videoData.outroEnd && videoData.outroEnd > 0 && ct >= videoData.outroStart && ct <= videoData.outroEnd) {
-                showSkip = true; skipTarget = videoData.outroEnd;
-                if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
-                else { btnText = "Skip Outro"; actionType = "skip"; }
-            }
-        }
-
-        if(showSkip && !isLocked) { 
-            skipPopup.style.display = 'block'; 
-            skipPopup.innerText = btnText;
-            skipPopup.onclick = async (e) => { 
-                e.stopPropagation(); skipPopup.style.display = 'none'; 
-                if(actionType === "next") {
-                    skipPopup.innerText = "Loading..."; skipPopup.style.display = 'block';
-                    window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
-                } else {
-                    if(btnText === "Skip Outro") video.currentTime = video.duration; else video.currentTime = skipTarget; 
+        if (!uiUpdateScheduled && !isDragging && !isSwiping) {
+            uiUpdateScheduled = true;
+            requestAnimationFrame(() => {
+                const curr = video.currentTime, dur = video.duration || 1; 
+                document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
+                if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
+                document.getElementById('currTime').innerText = formatTime(curr); 
+                document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
+                
+                // --- Save Progress Logic ---
+                if (Math.floor(curr) % 5 === 0 && epId && curr > 0) {
+                    // Local Storage
+                    localStorage.setItem(`vid_${epId}`, curr);
+                    
+                    // Cross-Device DB Sync (Every 10 seconds to limit writes)
+                    if (currentUid && currentProfileId && Math.floor(curr) % 10 === 0) {
+                        const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
+                        setDoc(profileRef, {
+                            continueWatching: {
+                                [seriesId]: {
+                                    epId: epId,
+                                    currentTime: curr,
+                                    duration: dur,
+                                    timestamp: Date.now()
+                                }
+                            }
+                        }, { merge: true }).catch(err => console.error("Sync Error:", err));
+                    }
                 }
-            }; 
-        } else { skipPopup.style.display = 'none'; }
+                
+                // --- Skip Intro/Outro ---
+                let showSkip = false, skipTarget = 0, btnText = "";
+                let actionType = "skip"; 
+
+                if (videoData) {
+                    if (videoData.introEnd && videoData.introEnd > 0 && curr >= videoData.introStart && curr <= videoData.introEnd) {
+                        showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
+                    }
+                    if (videoData.outroEnd && videoData.outroEnd > 0 && curr >= videoData.outroStart && curr <= videoData.outroEnd) {
+                        showSkip = true; skipTarget = videoData.outroEnd;
+                        if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
+                        else { btnText = "Skip Outro"; actionType = "skip"; }
+                    }
+                }
+
+                if(showSkip && !isLocked) { 
+                    skipPopup.style.display = 'block'; 
+                    skipPopup.innerText = btnText;
+                    skipPopup.onclick = async (e) => { 
+                        e.stopPropagation(); skipPopup.style.display = 'none'; 
+                        if(actionType === "next") {
+                            skipPopup.innerText = "Loading..."; skipPopup.style.display = 'block';
+                            window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
+                        } else {
+                            if(btnText === "Skip Outro") video.currentTime = video.duration; else video.currentTime = skipTarget; 
+                        }
+                    }; 
+                } else { skipPopup.style.display = 'none'; }
+                
+                uiUpdateScheduled = false;
+            });
+        }
     });
 
     window.triggerSkip = (amount, e) => {
@@ -556,7 +639,7 @@
             video.muted = true; 
             extAudio.src = url; 
             extAudio.currentTime = video.currentTime; 
-            if(!video.paused) extAudio.play(); 
+            if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } 
         } else { 
             useExtAudio = false; 
             video.muted = false; 
@@ -574,7 +657,6 @@
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
     window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
 
-    // --- MX PLAYER STYLE HORIZONTAL SWIPE TO SEEK ---
     let swipeStartX = 0;
     let swipeStartTime = 0;
     let isSwiping = false;
@@ -590,12 +672,12 @@
         if (isLocked || swipeStartX === 0 || !video.duration) return;
         const deltaX = e.touches[0].clientX - swipeStartX;
         
-        if (Math.abs(deltaX) > 15) { // Threshold to start seeking
+        if (Math.abs(deltaX) > 15) {
             isSwiping = true;
-            const seekOffset = deltaX * 0.15; // Speed factor
+            const seekOffset = deltaX * 0.15; 
             let newTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
             
-            centerControls.style.opacity = '0'; // Hide center buttons
+            centerControls.style.opacity = '0'; 
             gInfo.style.display = 'block';
             gInfo.innerText = `${formatTime(newTime)} / ${formatTime(video.duration)}`;
             e.preventDefault(); 
@@ -627,7 +709,7 @@
     let timeoutId;
     function showUI() { 
         uiLayer.classList.remove('hidden'); 
-        wrap.style.cursor = 'default'; // Show cursor when UI is active
+        wrap.style.cursor = 'default'; 
         isUiVisible = true; 
         clearTimeout(timeoutId); 
         timeoutId = setTimeout(() => { 
@@ -638,7 +720,7 @@
     function hideUI() { 
         if(!video.paused) { 
             uiLayer.classList.add('hidden'); 
-            wrap.style.cursor = 'none'; // Hide cursor when UI fades
+            wrap.style.cursor = 'none'; 
             closeAllSheets(); 
             isUiVisible = false; 
         } 
@@ -655,10 +737,5 @@
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
 </script>
-
-</body>
-</html>chstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
-</script>
-
 </body>
 </html>
