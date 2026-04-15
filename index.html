@@ -12,9 +12,21 @@
             --accent: #ffffff; --bg: #000000; --text-main: #ffffff; --text-sec: rgba(255, 255, 255, 0.6);
             --track-bg: rgba(255, 255, 255, 0.2); --fill-bg: #ffffff; --surface-dark: #121212; 
             --surface-light: #1e1e1e; --ad-color: #ffcc00;
+            /* Subtitle CSS Variables */
+            --sub-color: #ffffff; --sub-bg: rgba(0,0,0,0.8); --sub-shadow: 0 1px 4px black;
+            --sub-font: sans-serif; --sub-size: 100%;
         }
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; outline: none; }
         body, html { margin: 0; padding: 0; width: 100vw; height: 100vh; background: var(--bg); overflow: hidden; user-select: none; }
+        
+        ::cue {
+            color: var(--sub-color);
+            background: var(--sub-bg);
+            font-family: var(--sub-font);
+            font-size: var(--sub-size);
+            text-shadow: var(--sub-shadow);
+        }
+
         .player-wrapper { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: #000; }
         video { width: 100%; height: 100%; transition: object-fit 0.3s ease; }
         .spinner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid var(--fill-bg); border-radius: 50%; animation: spin 1s linear infinite; display: none; z-index: 40; pointer-events: none; }
@@ -78,7 +90,7 @@
         .bottom-sheet { position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%); width: 100%; max-width: 600px; background: var(--surface-dark); border-radius: 24px 24px 0 0; padding: 24px; z-index: 60; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s, visibility 0.3s; display: flex; flex-direction: column; gap: 20px; box-shadow: 0 -10px 40px rgba(0,0,0,0.9); max-height: 85vh; overflow-y: auto; scrollbar-width: none; opacity: 0; visibility: hidden; pointer-events: none; border-top: 1px solid rgba(255,255,255,0.1); }
         .bottom-sheet::-webkit-scrollbar { display: none; }
         .bottom-sheet.active { transform: translate(-50%, 0); opacity: 1; visibility: visible; pointer-events: auto; }
-        .bs-header { font-size: 20px; color: white; font-weight: bold; margin-bottom: 5px; }
+        .bs-header { font-size: 20px; color: white; font-weight: bold; margin-bottom: 5px; display:flex; align-items:center; gap:10px; }
         .bs-list { display: flex; flex-direction: column; gap: 8px; }
         .bs-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--surface-light); border-radius: 8px; color: var(--text-sec); cursor: pointer; transition: 0.2s; font-size: 16px; font-weight: 500; border: 1px solid transparent; }
         .bs-item:hover { background: #2a2a2a; color: white; }
@@ -91,7 +103,25 @@
         .ss-pitch-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px;} .ss-pitch-text { display: flex; flex-direction: column; gap: 4px; padding-right: 20px; } .ss-pitch-title { font-size: 16px; color: white; font-weight: 500; } .ss-pitch-desc { font-size: 12px; color: var(--text-sec); line-height: 1.4; }
         .ss-main-btn { width: 100%; background: white; color: black; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; padding: 14px; transition: 0.2s; margin-top: 10px;} .ss-main-btn:hover { background: #e0e0e0; } .ss-main-btn:active { transform: scale(0.98); }
         .toggle-container { display: flex; align-items: center; cursor: pointer; } .toggle-switch { width: 40px; height: 22px; background: rgba(255,255,255,0.2); border-radius: 12px; position: relative; transition: 0.3s; } .toggle-switch.active { background: white; } .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #000; border-radius: 50%; transition: 0.3s; } .toggle-switch.active .toggle-thumb { transform: translateX(18px); }
-        @media (max-width: 768px) { .center-controls { gap: 30px; } .play-icon { width: 56px; height: 56px; } .skip-icon { width: 36px; height: 36px; } .top-bar { padding: 15px; } .bottom-area { padding: 10px 15px 15px 15px; } .main-title { font-size: 15px; } .sub-title { font-size: 12px; } .time { font-size: 11px; min-width: 35px; } .skip-rect { bottom: 75px; padding: 6px 12px; font-size: 12px; right: 15px; } .float-text { font-size: 15px; } .bottom-sheet { padding: 15px; } .bs-header { font-size: 18px; } }
+        
+        /* End Screen UI */
+        .end-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 45; display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; visibility: hidden; transition: 0.3s; backdrop-filter: blur(5px); }
+        .end-screen.active { opacity: 1; visibility: visible; pointer-events: auto; }
+        .es-top { position: absolute; top: 20px; right: 20px; }
+        .es-cards { display: flex; gap: 15px; overflow-x: auto; max-width: 90%; padding: 20px 0; scrollbar-width: none; }
+        .es-cards::-webkit-scrollbar { display: none; }
+        .es-card { width: 220px; flex-shrink: 0; background: #1a1a1a; border-radius: 8px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: 0.2s; }
+        .es-card:hover { border-color: white; transform: scale(1.03); }
+        .es-card img { width: 100%; height: 120px; object-fit: cover; }
+        .es-card-info { padding: 10px; }
+        .es-card-title { color: white; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .es-action { margin-top: 20px; text-align: center; color: white; }
+        .es-btn { background: white; color: black; padding: 10px 24px; border-radius: 20px; font-weight: bold; border: none; cursor: pointer; margin-top: 10px; font-size: 16px; }
+        .up-arrow-btn { position: absolute; bottom: 85px; right: 24px; z-index: 44; background: rgba(20,20,20,0.85); color: white; border: 1px solid rgba(255,255,255,0.4); border-radius: 50%; width: 44px; height: 44px; display: none; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
+        .up-arrow-btn:hover { background: rgba(50,50,50,0.9); }
+        .up-arrow-btn svg { width: 24px; height: 24px; fill: white; }
+
+        @media (max-width: 768px) { .center-controls { gap: 30px; } .play-icon { width: 56px; height: 56px; } .skip-icon { width: 36px; height: 36px; } .top-bar { padding: 15px; } .bottom-area { padding: 10px 15px 15px 15px; } .main-title { font-size: 15px; } .sub-title { font-size: 12px; } .time { font-size: 11px; min-width: 35px; } .skip-rect { bottom: 75px; padding: 6px 12px; font-size: 12px; right: 15px; } .float-text { font-size: 15px; } .bottom-sheet { padding: 15px; } .bs-header { font-size: 18px; } .es-card { width: 160px; } .es-card img { height: 90px; } }
     </style>
 </head>
 <body>
@@ -101,9 +131,26 @@
     <div id="brightnessOverlay"></div>
     <div class="gesture-info" id="gestureInfo">Volume: 100%</div>
     <div class="ad-overlay" id="adOverlay"><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Playing Advertisement</div><div style="color: white;">Ad cannot be skipped...</div></div>
+    
     <video id="mainVideo" crossorigin="anonymous" playsinline></video>
     <audio id="externalAudio"></audio>
+
     <div class="gesture-zone" id="leftGesture"></div><div class="gesture-zone" id="rightGesture"></div>
+
+    <div class="end-screen" id="endScreen">
+        <div class="es-top">
+            <button class="icon-btn" onclick="hideEndScreen()"><svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg></button>
+        </div>
+        <h2 style="color:white; margin-bottom: 15px;">Up Next</h2>
+        <div class="es-cards" id="esCards"></div>
+        <div class="es-action">
+            <div style="margin-bottom: 10px; color: var(--text-sec); font-size: 14px;">Autoplay in <span id="esCount" style="color:white; font-weight:bold; font-size:16px;">5</span>s</div>
+            <button class="es-btn" onclick="playNextAction()">Play Now</button>
+        </div>
+    </div>
+    <button class="up-arrow-btn" id="upArrowBtn" onclick="showEndScreen()">
+        <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+    </button>
 
     <div class="ui-layer" id="uiLayer">
         <div class="top-gradient"></div><div class="bottom-gradient"></div>
@@ -166,16 +213,62 @@
     <button class="skip-rect" id="skipPopup">Skip Intro</button>
 
     <div class="bottom-sheet" id="qualitySheet"><div class="bs-header">Video Quality</div><div class="bs-list" id="qualityList"></div></div>
+    
     <div class="bottom-sheet" id="subSheet">
         <div class="bs-header">Subtitles</div>
         <div class="bs-list" id="subList"><div class="bs-item active" onclick="selectDbSub(this, -1)">Off</div><button class="bs-add-btn" onclick="document.getElementById('localSub').click()"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Add Custom Subtitle</button></div>
+        <button class="bs-add-btn" onclick="openSheet('subCustomizeSheet', event)" style="background:var(--fill-bg); color:black; border:none; margin-top:15px;">Customize Appearance</button>
         <input type="file" id="localSub" style="display:none;" accept=".srt,.vtt">
     </div>
+
+    <div class="bottom-sheet" id="subCustomizeSheet">
+        <div class="bs-header">
+            <button class="icon-btn" onclick="openSheet('subSheet', event)" style="width:24px; height:24px;"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+            Subtitle Appearance
+        </div>
+        
+        <div class="ss-header-row"><span class="ss-label">Text Size</span></div>
+        <div class="ss-slider-container">
+            <input type="range" min="50" max="200" step="10" value="100" class="ss-slider" id="subSizeSlider" style="width:100%;">
+        </div>
+
+        <div class="ss-header-row" style="margin-top:10px;"><span class="ss-label">Text Color</span></div>
+        <div class="ss-presets" id="subColorPresets">
+            <button class="ss-pill" onclick="setSubVar('--sub-color', '#ffffff', this)">White</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-color', '#ffff00', this)">Yellow</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-color', '#00ffff', this)">Cyan</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-color', '#ff0000', this)">Red</button>
+        </div>
+
+        <div class="ss-header-row" style="margin-top:10px;"><span class="ss-label">Background</span></div>
+        <div class="ss-presets" id="subBgPresets">
+            <button class="ss-pill" onclick="setSubVar('--sub-bg', 'rgba(0,0,0,0.8)', this)">Black</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-bg', 'rgba(0,0,0,0.4)', this)">Transparent</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-bg', 'transparent', this)">Off</button>
+        </div>
+
+        <div class="ss-header-row" style="margin-top:10px;"><span class="ss-label">Border / Edge</span></div>
+        <div class="ss-presets" id="subBorderPresets">
+            <button class="ss-pill" onclick="setSubVar('--sub-shadow', '0 1px 4px black', this)">Drop Shadow</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-shadow', '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000', this)">Outline</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-shadow', 'none', this)">Off</button>
+        </div>
+
+        <div class="ss-header-row" style="margin-top:10px;"><span class="ss-label">Font Family</span></div>
+        <div class="ss-presets" id="subFontPresets">
+            <button class="ss-pill" onclick="setSubVar('--sub-font', 'sans-serif', this)">Sans-Serif</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-font', 'serif', this)">Serif</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-font', 'monospace', this)">Monospace</button>
+            <button class="ss-pill" onclick="setSubVar('--sub-font', 'impact', this)">Impact</button>
+        </div>
+    </div>
+
     <div class="bottom-sheet" id="audioSheet">
         <div class="bs-header">Audio Tracks</div><div class="bs-list" id="audioList"></div>
         <button class="bs-add-btn" onclick="document.getElementById('localAudio').click()"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Add Custom Audio</button>
         <input type="file" id="localAudio" style="display:none;" accept="audio/*">
     </div>
+    
     <div class="bottom-sheet" id="speedSheet">
         <div class="ss-header-row"><span class="ss-label">Speed</span><span class="ss-val" id="ssValText">1.00x</span></div>
         <div class="ss-slider-container"><div class="ss-slider-fill" id="ssSliderFill" style="width: 50%;"></div><input type="range" min="0.25" max="3" step="0.05" value="1" class="ss-slider" id="ssSlider"></div>
@@ -186,6 +279,7 @@
         <button class="ss-main-btn" onclick="closeAllSheets()">Make default speed</button>
     </div>
 </div>
+
 <script type="module">
     import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
@@ -221,60 +315,66 @@
     let videoData = null, nextEpId = null, isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
 
-    // --- User Sync State ---
     let currentUid = null;
     let currentProfileId = null;
     let dbSavedTime = null;
     let authChecked = false;
-    let isIntendedToPlay = true; // Auto-play enabled by default
+    let isIntendedToPlay = true;
 
     let savedSpeed = parseFloat(localStorage.getItem('aniplay_speed')) || 1;
     let savedPitch = localStorage.getItem('aniplay_pitch') !== 'false';
     let savedScaleMode = parseInt(localStorage.getItem('aniplay_scale')) || 0;
 
+    // Fix 1: Pitch correction initialization 
     video.preservesPitch = savedPitch;
-    video.autoplay = true; // Auto-play enabled
+    extAudio.preservesPitch = savedPitch; 
+    video.autoplay = true; 
     if(!savedPitch) document.getElementById('pitchToggle').classList.remove('active');
 
-    // --- 1. Check Auth and Fetch Saved Time First ---
+    // Initialize Subtitle CSS Variables from LocalStorage
+    ['color', 'bg', 'shadow', 'font', 'size'].forEach(prop => {
+        let val = localStorage.getItem('aniplay_--sub-' + prop);
+        if(val) document.documentElement.style.setProperty('--sub-' + prop, val);
+    });
+    const subSizeSlider = document.getElementById('subSizeSlider');
+    let sSize = localStorage.getItem('aniplay_--sub-size');
+    if(sSize) subSizeSlider.value = parseInt(sSize);
+    
+    // Subtitle Customization function
+    window.setSubVar = (prop, val, btn) => {
+        document.documentElement.style.setProperty(prop, val);
+        localStorage.setItem('aniplay_' + prop, val);
+        if(btn) {
+            btn.parentElement.querySelectorAll('.ss-pill').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+        }
+    };
+    subSizeSlider.addEventListener('input', (e) => { setSubVar('--sub-size', e.target.value + '%'); });
+
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             currentUid = user.uid;
             currentProfileId = sessionStorage.getItem('active_profile_id') || 'profile_0';
-            
-            // Fetch cross-device resume time from DB
             try {
                 const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
                 const snap = await getDoc(profileRef);
                 if (snap.exists() && snap.data().continueWatching && snap.data().continueWatching[seriesId]) {
                     const cw = snap.data().continueWatching[seriesId];
-                    if (cw.epId === epId && cw.currentTime > 0) {
-                        dbSavedTime = cw.currentTime;
-                    }
+                    if (cw.epId === epId && cw.currentTime > 0) dbSavedTime = cw.currentTime;
                 }
-            } catch (err) { console.error("Error fetching DB resume time:", err); }
+            } catch (err) { console.error(err); }
         }
-
-        if (!authChecked) {
-            authChecked = true;
-            loadVideo(); // Load video after auth check
-        }
+        if (!authChecked) { authChecked = true; loadVideo(); }
     });
-
-    // Fallback if auth takes too long
     setTimeout(() => { if (!authChecked) { authChecked = true; loadVideo(); } }, 2000);
 
-    // --- 2. Load Video Logic ---
     async function loadVideo() {
         if(!seriesId || !epId) { 
-            document.getElementById('tTitle').innerText = "URL ERROR: IDs Missing"; 
-            document.getElementById('tSub').innerText = "Please ensure the link contains both ?seriesId=...&epId=..."; 
-            return; 
+            document.getElementById('tTitle').innerText = "URL ERROR: IDs Missing"; return; 
         }
 
         try {
             document.getElementById('tTitle').innerText = "Fetching Episode...";
-            document.getElementById('tSub').innerText = "Loading from Database...";
             spinner.style.display = 'block';
 
             const epRef = doc(contentDb, "series", seriesId, "episodes", epId);
@@ -288,22 +388,12 @@
                 const aList = document.getElementById('audioList');
                 const sList = document.getElementById('subList');
 
-                qList.innerHTML = '';
-                aList.innerHTML = '';
+                qList.innerHTML = ''; aList.innerHTML = '';
 
                 if (videoData.m3u8Url && videoData.m3u8Url.trim() !== "") {
                     let mainUrl = videoData.m3u8Url.trim();
-                    
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                        if(hlsEngine) hlsEngine.destroy(); 
-                        
-                        hlsEngine = new Hls({
-                            maxMaxBufferLength: 300, 
-                            backBufferLength: 90,   
-                            maxBufferSize: 30 * 1000 * 1000, 
-                            capLevelToPlayerSize: true 
-                        }); 
-                        
+                        hlsEngine = new Hls({ maxMaxBufferLength: 300, capLevelToPlayerSize: true }); 
                         hlsEngine.loadSource(mainUrl); 
                         hlsEngine.attachMedia(video);
                         
@@ -312,8 +402,7 @@
                             data.levels.forEach((level, index) => { 
                                 qList.innerHTML += `<div class="bs-item" onclick="selectHlsQuality(this, ${index})">${level.height}p</div>`; 
                             });
-                            // Trigger Auto-play
-                            video.play().catch(e => console.log("Autoplay blocked by browser."));
+                            video.play().catch(e => {});
                         });
 
                         hlsEngine.on(Hls.Events.AUDIO_TRACKS_UPDATED, function(event, data) {
@@ -324,19 +413,13 @@
                                     let isActive = (index === hlsEngine.audioTrack) ? ' active' : '';
                                     aList.innerHTML += `<div class="bs-item${isActive}" onclick="selectHlsAudio(this, ${index})">${trackName}</div>`;
                                 });
-                                useExtAudio = false; 
-                                video.muted = false; 
-                            } else {
-                                loadDbAudios(videoData);
-                            }
+                                useExtAudio = false; video.muted = false; 
+                            } else { loadDbAudios(videoData); }
                         });
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = mainUrl;
-                        loadDbAudios(videoData);
-                        video.play().catch(e => console.log("Autoplay blocked."));
+                        video.src = mainUrl; loadDbAudios(videoData); video.play().catch(e => {});
                     }
-                } 
-                else {
+                } else {
                     let allSources = [];
                     if(videoData.illusions && videoData.illusions.length > 0) allSources = videoData.illusions.map(i => ({ name: i.qualityName || i.quality || 'HD', url: i.url }));
                     else if (videoData.videos && videoData.videos.length > 0) allSources = videoData.videos.map(v => ({ name: v.quality || 'Default', url: v.url }));
@@ -344,18 +427,10 @@
                     if(allSources.length > 0) {
                         video.src = allSources[0].url;
                         allSources.forEach((src, index) => {
-                            const item = document.createElement('div'); 
-                            item.className = 'bs-item' + (index === 0 ? ' active' : ''); 
-                            item.innerText = src.name;
-                            item.onclick = function() { selectQuality(this, src.url); }; 
-                            qList.appendChild(item);
+                            const item = document.createElement('div'); item.className = 'bs-item' + (index === 0 ? ' active' : ''); 
+                            item.innerText = src.name; item.onclick = function() { selectQuality(this, src.url); }; qList.appendChild(item);
                         });
-                        video.play().catch(e => console.log("Autoplay blocked."));
-                    } else {
-                        document.getElementById('tTitle').innerText = "No Sources Found";
-                        document.getElementById('tSub').innerText = "This episode has no videos attached in DB.";
-                        spinner.style.display = 'none';
-                        return;
+                        video.play().catch(e => {});
                     }
                     loadDbAudios(videoData);
                 }
@@ -364,66 +439,42 @@
                     videoData.subtitles.forEach((sub, index) => {
                         const track = document.createElement('track'); track.kind = 'captions'; track.label = sub.language || sub.name || 'Sub ' + (index + 1); track.src = sub.url; video.appendChild(track);
                         const item = document.createElement('div'); item.className = 'bs-item'; item.innerText = track.label;
-                        item.onclick = function() { selectDbSub(this, index); }; sList.insertBefore(item, sList.lastElementChild.previousElementSibling);
+                        item.onclick = function() { selectDbSub(this, index); }; sList.insertBefore(item, sList.lastElementChild.previousElementSibling.previousElementSibling);
                     });
                 }
 
                 document.getElementById('tTitle').innerText = videoData.title || "Unknown Episode";
-                document.getElementById('tSub').innerText = videoData.description || "Episode details unavailable.";
+                document.getElementById('tSub').innerText = videoData.description || "";
 
-                // Priority: 1. DB Cross-Device Time, 2. Local Storage Time
                 let targetTime = dbSavedTime || localStorage.getItem(`vid_${epId}`);
                 if(targetTime) {
                     const st = parseFloat(targetTime);
                     if(video.readyState >= 1) {
-                        video.currentTime = st;
-                        if (useExtAudio) extAudio.currentTime = st;
+                        video.currentTime = st; if (useExtAudio) extAudio.currentTime = st;
                     } else {
                         video.addEventListener('loadedmetadata', () => { 
-                            if (video.currentTime === 0) {
-                                video.currentTime = st; 
-                                if (useExtAudio) extAudio.currentTime = st;
-                            }
+                            if (video.currentTime === 0) { video.currentTime = st; if (useExtAudio) extAudio.currentTime = st; }
                         }, { once: true });
                     }
                 }
                 
                 setPlaybackSpeed(savedSpeed); applyScaleMode(savedScaleMode, false);
 
-            } else {
-                document.getElementById('tTitle').innerText = "404: Episode Not Found";
-                document.getElementById('tSub').innerText = "Database me is ID ka koi data nahi mila.";
-                spinner.style.display = 'none';
-            }
-        } catch(error) {
-            console.error("Firebase Error:", error);
-            document.getElementById('tTitle').innerText = "Database Error";
-            document.getElementById('tSub').innerText = error.message;
-            spinner.style.display = 'none';
-        }
+            } else { spinner.style.display = 'none'; }
+        } catch(error) { spinner.style.display = 'none'; }
     }
 
     function loadDbAudios(data) {
         const aList = document.getElementById('audioList');
         aList.innerHTML = ''; 
-
         if(data.audios && data.audios.length > 0) {
             data.audios.forEach((aud, index) => {
-                const item = document.createElement('div'); 
-                item.className = 'bs-item' + (index === 0 ? ' active' : '');
+                const item = document.createElement('div'); item.className = 'bs-item' + (index === 0 ? ' active' : '');
                 item.innerText = aud.language || aud.name || 'External Audio ' + (index + 1);
-                item.onclick = function() { selectAudio(this, aud.url); }; 
-                aList.appendChild(item);
+                item.onclick = function() { selectAudio(this, aud.url); }; aList.appendChild(item);
             });
-            
-            useExtAudio = true;
-            video.muted = true;
-            extAudio.src = data.audios[0].url;
-            extAudio.load();
-        } else {
-            useExtAudio = false;
-            video.muted = false;
-        }
+            useExtAudio = true; video.muted = true; extAudio.src = data.audios[0].url; extAudio.load();
+        } else { useExtAudio = false; video.muted = false; }
     }
 
     async function checkNextEpisode() {
@@ -432,102 +483,102 @@
             const epRef = collection(contentDb, "series", seriesId, "episodes");
             const q = query(epRef, where("orderIndex", ">", currentOrder), orderBy("orderIndex", "asc"), limit(1));
             const querySnapshot = await getDocs(q);
-            if(!querySnapshot.empty) { nextEpId = querySnapshot.docs[0].id; }
+            if(!querySnapshot.empty) nextEpId = querySnapshot.docs[0].id;
         } catch(e) {}
     }
 
-    let isSyncing = false;
-    let audioBufferTimeout = null;
     let isAudioBuffering = false;
-
     playPauseBtn.addEventListener('click', (e) => { 
         e.stopPropagation(); 
-        if(video.paused) {
-            isIntendedToPlay = true;
-            video.play().catch(()=>{});
-            if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{});
+        if(video.paused) { isIntendedToPlay = true; video.play().catch(()=>{}); if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{}); } 
+        else { isIntendedToPlay = false; video.pause(); if(useExtAudio) extAudio.pause(); }
+    });
+
+    video.addEventListener('play', () => { document.getElementById('playIcon').style.display='none'; document.getElementById('pauseIcon').style.display='block'; hideUI(); if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play().catch(()=>{}); });
+    video.addEventListener('pause', () => { document.getElementById('playIcon').style.display='block'; document.getElementById('pauseIcon').style.display='none'; showUI(); if(useExtAudio && !isIntendedToPlay) extAudio.pause(); });
+    
+    // Smooth Sync Logic fixing audio/video stutters
+    video.addEventListener('seeked', () => { if(useExtAudio && extAudio.readyState >= 1) extAudio.currentTime = video.currentTime; });
+    video.addEventListener('waiting', () => { spinner.style.display = 'block'; if(useExtAudio) extAudio.pause(); });
+    video.addEventListener('playing', () => { spinner.style.display = 'none'; if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play().catch(()=>{}); });
+    extAudio.addEventListener('waiting', () => { if(useExtAudio && isIntendedToPlay) { isAudioBuffering = true; setTimeout(() => { if (isAudioBuffering) { spinner.style.display = 'block'; video.pause(); } }, 2000); } });
+    extAudio.addEventListener('playing', () => { isAudioBuffering = false; if(useExtAudio && isIntendedToPlay) { spinner.style.display = 'none'; if(video.paused) video.play().catch(()=>{}); } });
+
+    // Fix 1: Pitch correction syncs nicely
+    video.addEventListener('ratechange', () => { 
+        if(useExtAudio) {
+            extAudio.playbackRate = video.playbackRate;
+            extAudio.preservesPitch = savedPitch;
+        }
+    });
+
+    let lastSyncTime = 0, uiUpdateScheduled = false;
+    let endScreenShown = false, esTimer = null, esCountdown = 5;
+
+    window.playNextAction = () => {
+        if(nextEpId) window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
+        else alert('No more episodes in this series.'); // For Movies, replace with your custom logic to load generic recommendation
+    };
+
+    window.hideEndScreen = () => {
+        clearInterval(esTimer);
+        document.getElementById('endScreen').classList.remove('active');
+        document.getElementById('upArrowBtn').style.display = 'flex';
+    };
+
+    window.showEndScreen = () => {
+        document.getElementById('endScreen').classList.add('active');
+        document.getElementById('upArrowBtn').style.display = 'none';
+    };
+
+    window.loadEndScreenData = async () => {
+        const container = document.getElementById('esCards');
+        container.innerHTML = '';
+        if (nextEpId) {
+            try {
+                const snap = await getDoc(doc(contentDb, "series", seriesId, "episodes", nextEpId));
+                let data = snap.exists() ? snap.data() : {title: 'Next Episode'};
+                container.innerHTML = `
+                <div class="es-card" onclick="playNextAction()">
+                    <img src="${data.thumbnail || 'https://via.placeholder.com/220x120?text=Next+Episode'}" />
+                    <div class="es-card-info"><div class="es-card-title">${data.title}</div></div>
+                </div>`;
+            } catch(e) {}
         } else {
-            isIntendedToPlay = false;
-            video.pause();
-            if(useExtAudio) extAudio.pause();
+            container.innerHTML = `
+                <div class="es-card" onclick="alert('Recommendation feature placeholder')">
+                    <img src="https://via.placeholder.com/220x120?text=More+Like+This" />
+                    <div class="es-card-info"><div class="es-card-title">Similar Movies</div></div>
+                </div>`;
         }
-    });
+    };
 
-    video.addEventListener('play', () => { 
-        document.getElementById('playIcon').style.display='none'; 
-        document.getElementById('pauseIcon').style.display='block'; 
-        hideUI(); 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
-            extAudio.play().catch(()=>{}); 
-        }
-    });
-    
-    video.addEventListener('pause', () => { 
-        document.getElementById('playIcon').style.display='block'; 
-        document.getElementById('pauseIcon').style.display='none'; 
-        showUI(); 
-        if(useExtAudio && !isIntendedToPlay) extAudio.pause(); 
-    });
-
-    video.addEventListener('seeked', () => { 
-        if(useExtAudio && extAudio.readyState >= 1) {
-            if(Math.abs(video.currentTime - extAudio.currentTime) > 0.3) {
-                extAudio.currentTime = video.currentTime;
-            }
-        }
-    });
-
-    video.addEventListener('waiting', () => { 
-        spinner.style.display = 'block'; 
-        if(useExtAudio) extAudio.pause();
-    });
-    
-    video.addEventListener('playing', () => { 
-        spinner.style.display = 'none'; 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) {
-            extAudio.play().catch(()=>{});
-        }
-    });
-
-    extAudio.addEventListener('waiting', () => {
-        if(useExtAudio && isIntendedToPlay) {
-            isAudioBuffering = true;
-            clearTimeout(audioBufferTimeout);
-            audioBufferTimeout = setTimeout(() => {
-                if (isAudioBuffering) { spinner.style.display = 'block'; video.pause(); }
-            }, 3000); 
-        }
-    });
-
-    extAudio.addEventListener('canplay', () => {
-        if(useExtAudio && isIntendedToPlay) {
-            isAudioBuffering = false;
-            clearTimeout(audioBufferTimeout);
-            if (video.paused) { spinner.style.display = 'none'; video.play().catch(()=>{}); }
-        }
-    });
-    
-    extAudio.addEventListener('playing', () => {
-        isAudioBuffering = false;
-        clearTimeout(audioBufferTimeout);
-        if(useExtAudio && isIntendedToPlay) {
-            spinner.style.display = 'none';
-            if(video.paused) video.play().catch(()=>{});
-        }
-    });
-
-    video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
-
-    let lastSyncTime = 0;
-    let uiUpdateScheduled = false;
+    function triggerEndScreen() {
+        if (endScreenShown || isLocked) return;
+        endScreenShown = true; hideUI();
+        document.getElementById('endScreen').classList.add('active');
+        loadEndScreenData();
+        esCountdown = 5;
+        document.getElementById('esCount').innerText = esCountdown;
+        esTimer = setInterval(() => {
+            esCountdown--;
+            document.getElementById('esCount').innerText = esCountdown;
+            if(esCountdown <= 0) { clearInterval(esTimer); playNextAction(); }
+        }, 1000);
+    }
 
     video.addEventListener('timeupdate', () => {
         const now = performance.now();
-        if (useExtAudio && now - lastSyncTime > 1000) {
-            if (extAudio.readyState >= 1 && Math.abs(video.currentTime - extAudio.currentTime) > 0.3 && !isSyncing) {
-                isSyncing = true;
-                extAudio.currentTime = video.currentTime;
-                setTimeout(() => { isSyncing = false; }, 300);
+        // Soft audio sync to avoid stutters
+        if (useExtAudio && extAudio.readyState >= 1 && now - lastSyncTime > 500) {
+            const diff = video.currentTime - extAudio.currentTime;
+            if (Math.abs(diff) > 0.4) {
+                extAudio.currentTime = video.currentTime; // Hard sync only if drift is large
+            } else if (Math.abs(diff) > 0.05) {
+                // Adjust audio rate to seamlessly catch up 
+                extAudio.playbackRate = video.playbackRate + (diff > 0 ? 0.05 : -0.05);
+            } else {
+                extAudio.playbackRate = video.playbackRate; // Restore normal rate
             }
             lastSyncTime = now;
         }
@@ -541,53 +592,35 @@
                 document.getElementById('currTime').innerText = formatTime(curr); 
                 document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
                 
-                // --- Save Progress Logic ---
                 if (Math.floor(curr) % 5 === 0 && epId && curr > 0) {
-                    // Local Storage
                     localStorage.setItem(`vid_${epId}`, curr);
-                    
-                    // Cross-Device DB Sync (Every 10 seconds to limit writes)
                     if (currentUid && currentProfileId && Math.floor(curr) % 10 === 0) {
                         const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
-                        setDoc(profileRef, {
-                            continueWatching: {
-                                [seriesId]: {
-                                    epId: epId,
-                                    currentTime: curr,
-                                    duration: dur,
-                                    timestamp: Date.now()
-                                }
-                            }
-                        }, { merge: true }).catch(err => console.error("Sync Error:", err));
+                        setDoc(profileRef, { continueWatching: { [seriesId]: { epId: epId, currentTime: curr, duration: dur, timestamp: Date.now() } } }, { merge: true }).catch(e => {});
                     }
                 }
                 
-                // --- Skip Intro/Outro ---
-                let showSkip = false, skipTarget = 0, btnText = "";
-                let actionType = "skip"; 
-
+                let showSkip = false, skipTarget = 0, btnText = "", actionType = "skip"; 
                 if (videoData) {
                     if (videoData.introEnd && videoData.introEnd > 0 && curr >= videoData.introStart && curr <= videoData.introEnd) {
                         showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; actionType = "skip";
                     }
                     if (videoData.outroEnd && videoData.outroEnd > 0 && curr >= videoData.outroStart && curr <= videoData.outroEnd) {
                         showSkip = true; skipTarget = videoData.outroEnd;
-                        if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } 
-                        else { btnText = "Skip Outro"; actionType = "skip"; }
+                        if(nextEpId) { btnText = "Next Episode"; actionType = "next"; } else { btnText = "Skip Outro"; actionType = "skip"; }
+                        triggerEndScreen(); // Show End Screen early during Outro
                     }
                 }
 
-                if(showSkip && !isLocked) { 
-                    skipPopup.style.display = 'block'; 
-                    skipPopup.innerText = btnText;
+                // Autoplay End Screen Trigger for generic videos
+                if(dur > 0 && curr >= dur - 5 && !endScreenShown) triggerEndScreen();
+
+                if(showSkip && !isLocked && !endScreenShown) { 
+                    skipPopup.style.display = 'block'; skipPopup.innerText = btnText;
                     skipPopup.onclick = async (e) => { 
                         e.stopPropagation(); skipPopup.style.display = 'none'; 
-                        if(actionType === "next") {
-                            skipPopup.innerText = "Loading..."; skipPopup.style.display = 'block';
-                            window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`;
-                        } else {
-                            if(btnText === "Skip Outro") video.currentTime = video.duration; else video.currentTime = skipTarget; 
-                        }
+                        if(actionType === "next") { window.location.href = `?seriesId=${seriesId}&epId=${nextEpId}`; } 
+                        else { video.currentTime = (btnText === "Skip Outro") ? video.duration : skipTarget; }
                     }; 
                 } else { skipPopup.style.display = 'none'; }
                 
@@ -606,133 +639,91 @@
     window.togglePiP = async () => { if(document.pictureInPictureEnabled) await video.requestPictureInPicture(); };
     function applyScaleMode(index) { video.style.objectFit = ['contain', 'cover', 'fill'][index]; ['iconFit', 'iconCrop', 'iconStretch'].forEach((id, i) => document.getElementById(id).style.display = i === index ? 'block' : 'none'); }
     window.cycleScaleMode = () => { savedScaleMode = (savedScaleMode + 1) % 3; applyScaleMode(savedScaleMode); localStorage.setItem('aniplay_scale', savedScaleMode); };
-
-    window.toggleLock = () => { 
-        isLocked = !isLocked; wrap.classList.toggle('locked', isLocked); 
-        document.getElementById('unlockedIcon').style.display = isLocked ? 'none' : 'block';
-        document.getElementById('lockedIcon').style.display = isLocked ? 'block' : 'none';
-        if(isLocked) { closeAllSheets(); showUI(); }
-    };
-    
+    window.toggleLock = () => { isLocked = !isLocked; wrap.classList.toggle('locked', isLocked); document.getElementById('unlockedIcon').style.display = isLocked ? 'none' : 'block'; document.getElementById('lockedIcon').style.display = isLocked ? 'block' : 'none'; if(isLocked) { closeAllSheets(); showUI(); } };
     window.openSheet = (id, e) => { if(e) e.stopPropagation(); closeAllSheets(); document.getElementById(id).classList.add('active'); };
     window.closeAllSheets = () => { document.querySelectorAll('.bottom-sheet').forEach(sheet => sheet.classList.remove('active')); };
-
-    window.selectQuality = (elem, url) => { 
-        document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); 
-        elem.classList.add('active'); 
-        if(url && video.src !== url) { 
-            const ct = video.currentTime; const p = video.paused; video.src = url; 
-            const resumeFunc = () => { try { video.currentTime = ct; } catch(e){} if(!p) video.play().catch(()=>{}); };
-            if(video.readyState >= 1) resumeFunc(); else video.addEventListener('loadedmetadata', resumeFunc, { once: true });
-        } closeAllSheets(); 
-    };
     
+    window.selectQuality = (elem, url) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(url && video.src !== url) { const ct = video.currentTime; const p = video.paused; video.src = url; const resumeFunc = () => { try { video.currentTime = ct; } catch(e){} if(!p) video.play().catch(()=>{}); }; if(video.readyState >= 1) resumeFunc(); else video.addEventListener('loadedmetadata', resumeFunc, { once: true }); } closeAllSheets(); };
     window.selectHlsQuality = (elem, levelIndex) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.currentLevel = levelIndex; closeAllSheets(); };
     window.selectHlsAudio = (elem, trackIndex) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.audioTrack = trackIndex; closeAllSheets(); };
     window.selectDbSub = (elem, trackIndex) => { document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'disabled'; if (trackIndex !== -1 && video.textTracks[trackIndex]) video.textTracks[trackIndex].mode = 'showing'; closeAllSheets(); };
     
     window.selectAudio = (elem, url) => { 
-        document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); 
-        elem.classList.add('active'); 
-        if(url) { 
-            useExtAudio = true; 
-            video.muted = true; 
-            extAudio.src = url; 
-            extAudio.currentTime = video.currentTime; 
-            if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } 
-        } else { 
-            useExtAudio = false; 
-            video.muted = false; 
-            extAudio.pause(); 
-        } 
+        document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); 
+        if(url) { useExtAudio = true; video.muted = true; extAudio.src = url; extAudio.currentTime = video.currentTime; if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } } 
+        else { useExtAudio = false; video.muted = false; extAudio.pause(); } 
         closeAllSheets(); 
     };
 
-    document.getElementById('localSub').addEventListener('change', e => { if(e.target.files[0]) { const fileName = e.target.files[0].name; const t = document.createElement('track'); t.kind='captions'; t.src=URL.createObjectURL(e.target.files[0]); t.default=true; video.appendChild(t); const newItem = document.createElement('div'); newItem.className = 'bs-item active'; newItem.innerText = fileName.length > 20 ? fileName.substring(0, 20) + "..." : fileName; const newIndex = video.textTracks.length; newItem.onclick = function() { selectDbSub(this, newIndex); }; const sList = document.getElementById('subList'); document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); sList.insertBefore(newItem, sList.lastElementChild.previousElementSibling); closeAllSheets(); } });
+    document.getElementById('localSub').addEventListener('change', e => { if(e.target.files[0]) { const fileName = e.target.files[0].name; const t = document.createElement('track'); t.kind='captions'; t.src=URL.createObjectURL(e.target.files[0]); t.default=true; video.appendChild(t); const newItem = document.createElement('div'); newItem.className = 'bs-item active'; newItem.innerText = fileName.length > 20 ? fileName.substring(0, 20) + "..." : fileName; const newIndex = video.textTracks.length; newItem.onclick = function() { selectDbSub(this, newIndex); }; const sList = document.getElementById('subList'); document.querySelectorAll('#subList .bs-item').forEach(el => el.classList.remove('active')); sList.insertBefore(newItem, sList.lastElementChild.previousElementSibling.previousElementSibling); closeAllSheets(); } });
     document.getElementById('localAudio').addEventListener('change', e => { if(e.target.files[0]) { const fileName = e.target.files[0].name; const newItem = document.createElement('div'); newItem.className = 'bs-item active'; newItem.innerText = fileName.length > 20 ? fileName.substring(0, 20) + "..." : fileName; newItem.onclick = function() { selectAudio(this, URL.createObjectURL(e.target.files[0])); }; document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); document.getElementById('audioList').insertBefore(newItem, document.getElementById('audioList').lastElementChild); closeAllSheets(); } });
 
     const ssSlider = document.getElementById('ssSlider'); const ssSliderFill = document.getElementById('ssSliderFill'); const ssValText = document.getElementById('ssValText');
     window.setPlaybackSpeed = (val) => { video.playbackRate = val; ssSlider.value = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); };
     ssSlider.addEventListener('input', (e) => { const val = parseFloat(e.target.value); video.playbackRate = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); });
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
-    window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); video.preservesPitch = savedPitch; localStorage.setItem('aniplay_pitch', savedPitch); };
+    
+    window.togglePitch = () => { 
+        savedPitch = !savedPitch; 
+        document.getElementById('pitchToggle').classList.toggle('active', savedPitch); 
+        video.preservesPitch = savedPitch; 
+        if(extAudio) extAudio.preservesPitch = savedPitch;
+        localStorage.setItem('aniplay_pitch', savedPitch); 
+    };
 
-    let swipeStartX = 0;
-    let swipeStartTime = 0;
-    let isSwiping = false;
-
-    wrap.addEventListener('touchstart', (e) => {
-        if (isLocked || e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track')) return;
-        swipeStartX = e.touches[0].clientX;
-        swipeStartTime = video.currentTime;
-        isSwiping = false;
-    }, {passive: true});
-
+    let swipeStartX = 0, swipeStartTime = 0, isSwiping = false;
+    wrap.addEventListener('touchstart', (e) => { if (isLocked || e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track') || e.target.closest('.end-screen')) return; swipeStartX = e.touches[0].clientX; swipeStartTime = video.currentTime; isSwiping = false; }, {passive: true});
     wrap.addEventListener('touchmove', (e) => {
-        if (isLocked || swipeStartX === 0 || !video.duration) return;
-        const deltaX = e.touches[0].clientX - swipeStartX;
-        
-        if (Math.abs(deltaX) > 15) {
-            isSwiping = true;
-            const seekOffset = deltaX * 0.15; 
-            let newTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
-            
-            centerControls.style.opacity = '0'; 
-            gInfo.style.display = 'block';
-            gInfo.innerText = `${formatTime(newTime)} / ${formatTime(video.duration)}`;
-            e.preventDefault(); 
-        }
+        if (isLocked || swipeStartX === 0 || !video.duration) return; const deltaX = e.touches[0].clientX - swipeStartX;
+        if (Math.abs(deltaX) > 15) { isSwiping = true; const seekOffset = deltaX * 0.15; let newTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset)); centerControls.style.opacity = '0'; gInfo.style.display = 'block'; gInfo.innerText = `${formatTime(newTime)} / ${formatTime(video.duration)}`; e.preventDefault(); }
     }, {passive: false});
-
-    wrap.addEventListener('touchend', (e) => {
-        if (isSwiping) {
-            const deltaX = e.changedTouches[0].clientX - swipeStartX;
-            const seekOffset = deltaX * 0.15;
-            video.currentTime = Math.max(0, Math.min(video.duration, swipeStartTime + seekOffset));
-            
-            centerControls.style.opacity = '1';
-            gInfo.style.display = 'none';
-            isSwiping = false;
-        }
-        swipeStartX = 0;
-    });
+    wrap.addEventListener('touchend', (e) => { if (isSwiping) { const deltaX = e.changedTouches[0].clientX - swipeStartX; video.currentTime = Math.max(0, Math.min(video.duration, swipeStartTime + deltaX * 0.15)); centerControls.style.opacity = '1'; gInfo.style.display = 'none'; isSwiping = false; } swipeStartX = 0; });
 
     let isDragging = false, dragPct = 0; const tPreview = document.getElementById('timePreview');
     function getEventX(e) { return e.touches && e.touches.length > 0 ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : e.clientX); }
     function handleDrag(e) { const rect = track.getBoundingClientRect(); let pos = getEventX(e) - rect.left; pos = Math.max(0, Math.min(pos, rect.width)); dragPct = pos / rect.width; tPreview.innerText = formatTime(dragPct * (video.duration || 0)); tPreview.style.left = `${dragPct * 100}%`; tPreview.style.display = 'block'; if (isDragging) document.getElementById('progressBar').style.width = `${dragPct * 100}%`; }
     track.addEventListener('mousedown', (e) => { isDragging = true; handleDrag(e); }); document.addEventListener('mousemove', (e) => { if (isDragging) handleDrag(e); else if (e.target.closest('.track')) handleDrag(e); }); document.addEventListener('mouseup', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } }); track.addEventListener('mouseleave', () => { if (!isDragging) tPreview.style.display = 'none'; });
     track.addEventListener('touchstart', (e) => { isDragging = true; handleDrag(e); }); track.addEventListener('touchmove', (e) => { if (isDragging) { handleDrag(e); e.preventDefault(); } }, {passive: false}); track.addEventListener('touchend', () => { if (isDragging) { video.currentTime = dragPct * video.duration; isDragging = false; tPreview.style.display = 'none'; } });
-
-    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; const p = (e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width; video.currentTime = p * video.duration; });
+    track.addEventListener('click', (e) => { e.stopPropagation(); if(isLocked) return; video.currentTime = ((e.clientX - track.getBoundingClientRect().left) / track.getBoundingClientRect().width) * video.duration; });
+    
     function formatTime(sec) { if (isNaN(sec)) return "00:00"; let h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0'), s = Math.floor(sec % 60).toString().padStart(2, '0'); return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`; }
 
     let timeoutId;
-    function showUI() { 
-        uiLayer.classList.remove('hidden'); 
-        wrap.style.cursor = 'default'; 
-        isUiVisible = true; 
-        clearTimeout(timeoutId); 
-        timeoutId = setTimeout(() => { 
-            if(!video.paused && !isDragging && !isSwiping) hideUI(); 
-        }, 3500); 
-    }
-    
-    function hideUI() { 
-        if(!video.paused) { 
-            uiLayer.classList.add('hidden'); 
-            wrap.style.cursor = 'none'; 
-            closeAllSheets(); 
-            isUiVisible = false; 
-        } 
-    }
+    function showUI() { uiLayer.classList.remove('hidden'); wrap.style.cursor = 'default'; isUiVisible = true; clearTimeout(timeoutId); timeoutId = setTimeout(() => { if(!video.paused && !isDragging && !isSwiping) hideUI(); }, 3500); }
+    function hideUI() { if(!video.paused) { uiLayer.classList.add('hidden'); wrap.style.cursor = 'none'; closeAllSheets(); isUiVisible = false; } }
 
-    wrap.addEventListener('click', (e) => {
-        const aSheet = document.querySelector('.bottom-sheet.active');
-        if (aSheet && !e.target.closest('.bottom-sheet')) { if(e.target.closest('.tr-icon') || e.target.closest('.hd-icon') || e.target.closest('.speed-text')) return; closeAllSheets(); showUI(); return; }
-        if(e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.speed-text') || e.target.closest('.hd-icon')) { showUI(); return; }
-        if(e.target.closest('.skip-rect')) return; 
-        
-        if(isUiVisible) hideUI(); else showUI();
+    // Double Tap Mechanics Replace the wrap click listener
+    let tapCount = 0;
+    let tapTimer = null;
+    wrap.addEventListener('pointerup', (e) => {
+        if (isSwiping || isDragging) return;
+        if(e.target.closest('.bottom-sheet') || e.target.closest('.icon-btn') || e.target.closest('.track') || e.target.closest('.skip-rect') || e.target.closest('.end-screen') || e.target.closest('.up-arrow-btn') || e.target.closest('.ad-overlay') || e.target.closest('.speed-text') || e.target.closest('.hd-icon')) return;
+
+        tapCount++;
+        if (tapCount === 1) {
+            tapTimer = setTimeout(() => {
+                // Single Tap Handle
+                const aSheet = document.querySelector('.bottom-sheet.active');
+                if (aSheet) { closeAllSheets(); showUI(); }
+                else if (isUiVisible) hideUI(); else showUI();
+                tapCount = 0;
+            }, 250); 
+        } else if (tapCount === 2) {
+            // Double Tap Handle
+            clearTimeout(tapTimer);
+            tapCount = 0;
+            
+            const rect = wrap.getBoundingClientRect();
+            const tapX = e.clientX - rect.left;
+            
+            if (tapX < rect.width * 0.3) {
+                triggerSkip(-10, null); // Double tap left
+            } else if (tapX > rect.width * 0.7) {
+                triggerSkip(10, null); // Double tap right
+            } else {
+                playPauseBtn.click(); // Double tap center
+            }
+        }
     });
 
     let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
