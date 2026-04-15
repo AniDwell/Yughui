@@ -188,13 +188,13 @@
 </div>
 <script type="module">
     import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
     // --- Dynamic DOM Injection for New UI & CSS ---
     const injectCSS = `
     /* Slider Styles */
-    .next-ep-slider { position: absolute; bottom: 85px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 800px; background: rgba(18,18,18,0.95); border-radius: 16px; padding: 16px; z-index: 55; display: none; flex-direction: column; gap: 10px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
+    .next-ep-slider { position: absolute; bottom: 95px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 800px; background: rgba(18,18,18,0.95); border-radius: 16px; padding: 16px; z-index: 55; display: none; flex-direction: column; gap: 10px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
     .next-ep-slider.active { display: flex; animation: slideUp 0.3s ease; }
     .slider-header { display: flex; justify-content: space-between; align-items: center; color: white; font-weight: bold; font-size: 16px; }
     .slider-close { cursor: pointer; background: rgba(255,255,255,0.1); border: none; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: 0.2s; }
@@ -204,9 +204,19 @@
     .slider-card:hover { transform: scale(1.02); border-color: rgba(255,255,255,0.4); }
     .slider-thumb { width: 100%; height: 100px; background: #444; object-fit: cover; display: block; }
     .slider-title { padding: 8px; color: white; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-    .slider-countdown-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: 0.2s; }
-    .slider-card.playing .slider-countdown-overlay { opacity: 1; }
-    .countdown-text { font-size: 32px; font-weight: bold; color: white; text-shadow: 0 2px 5px rgba(0,0,0,0.8); }
+
+    /* Floating Slider Trigger Button */
+    .slider-trigger-btn { position: absolute; right: 24px; bottom: 80px; background: rgba(20,20,20,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; width: 36px; height: 36px; display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 45; transition: 0.2s; color: white; backdrop-filter: blur(4px); }
+    .slider-trigger-btn:hover { background: rgba(50,50,50,0.9); transform: scale(1.1); }
+    .slider-trigger-btn svg { width: 20px; height: 20px; fill: white; }
+
+    /* Autoplay Toggle in UI */
+    .autoplay-wrapper { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-right: 10px; }
+    .ap-label { font-size: 12px; color: var(--text-sec); font-weight: bold; text-transform: uppercase; }
+    .ap-switch { width: 32px; height: 18px; background: rgba(255,255,255,0.2); border-radius: 10px; position: relative; transition: 0.3s; }
+    .ap-switch.active { background: var(--fill-bg); }
+    .ap-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #000; border-radius: 50%; transition: 0.3s; }
+    .ap-switch.active .ap-thumb { transform: translateX(14px); }
 
     /* Subtitle Styler */
     .styler-section { margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; display: flex; flex-direction: column; gap: 15px; }
@@ -228,20 +238,20 @@
     @keyframes tapRipple { 0% { opacity: 1; transform: translateY(-50%) scale(0.8); } 100% { opacity: 0; transform: translateY(-50%) scale(1.5); } }
     `;
 
-    const styleEl = document.createElement('style');
-    styleEl.innerHTML = injectCSS;
-    document.head.appendChild(styleEl);
+    const styleEl = document.createElement('style'); styleEl.innerHTML = injectCSS; document.head.appendChild(styleEl);
 
     // Dynamic Subtitle CSS Block
-    const dynamicSubStyle = document.createElement('style');
-    document.head.appendChild(dynamicSubStyle);
+    const dynamicSubStyle = document.createElement('style'); document.head.appendChild(dynamicSubStyle);
 
-    // Inject Slider DOM
+    // Inject Slider DOM & Floating Trigger Button
     const sliderHTML = `
+        <button class="slider-trigger-btn" id="sliderTrigger" onclick="toggleSliderUI(event)" title="Episodes Menu">
+            <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+        </button>
         <div class="next-ep-slider" id="nextEpSlider">
             <div class="slider-header">
-                <span id="sliderTitleText">Up Next</span>
-                <button class="slider-close" onclick="cancelAutoPlay()">✕</button>
+                <span id="sliderTitleText">Episodes</span>
+                <button class="slider-close" onclick="toggleSliderUI(event)">✕</button>
             </div>
             <div class="slider-cards" id="sliderCardsContainer"></div>
         </div>
@@ -250,7 +260,16 @@
     `;
     document.getElementById('playerWrap').insertAdjacentHTML('beforeend', sliderHTML);
 
-    // Add Close buttons to sheets & inject Subtitle styling options
+    // Inject Autoplay Toggle into bottom-tools (Right Side)
+    const autoplayHTML = `
+        <div class="autoplay-wrapper" onclick="toggleAutoPlayNext(event)" title="Auto-play Next Episode">
+            <span class="ap-label">Autoplay</span>
+            <div class="ap-switch active" id="apSwitch"><div class="ap-thumb"></div></div>
+        </div>
+    `;
+    document.querySelector('.tools-right').insertAdjacentHTML('afterbegin', autoplayHTML);
+
+    // Add Close buttons to sheets & inject Subtitle styling options (Color removed)
     document.querySelectorAll('.bottom-sheet').forEach(sheet => {
         sheet.insertAdjacentHTML('afterbegin', `<button class="bs-close-btn" onclick="closeAllSheets(true)">✕</button>`);
     });
@@ -264,14 +283,6 @@
                     <button class="st-btn" onclick="setSubStyle('size', '16px')">Small</button>
                     <button class="st-btn active" onclick="setSubStyle('size', '22px')">Normal</button>
                     <button class="st-btn" onclick="setSubStyle('size', '28px')">Large</button>
-                </div>
-            </div>
-            <div class="styler-row">
-                <span class="styler-label">Text Color</span>
-                <div class="styler-options" id="opt-color">
-                    <button class="st-btn active" onclick="setSubStyle('color', '#ffffff')">White</button>
-                    <button class="st-btn" onclick="setSubStyle('color', '#ffcc00')">Yellow</button>
-                    <button class="st-btn" onclick="setSubStyle('color', '#00ffff')">Cyan</button>
                 </div>
             </div>
             <div class="styler-row">
@@ -294,7 +305,7 @@
     `;
     document.getElementById('subSheet').insertAdjacentHTML('beforeend', subStylingHTML);
 
-    // --- Firebase Dual Setup ---
+    // --- Firebase Setup ---
     const contentConfig = { apiKey: "AIzaSyAPLj8br4ZbM0OSRCQ80GNqyjXZ6fRAKOA", authDomain: "wuhq8q8q.firebaseapp.com", projectId: "wuhq8q8q" };
     const userConfig = { apiKey: "AIzaSyAF0DQCa4mXJfHGNaRMn1gOrj4GDfJxUao", authDomain: "aniplay-43240.firebaseapp.com", projectId: "aniplay-43240" };
 
@@ -302,139 +313,130 @@
     const userApp = existingApps.find(a => a.name === "[DEFAULT]") || initializeApp(userConfig);
     const contentApp = existingApps.find(a => a.name === "contentApp") || initializeApp(contentConfig, "contentApp");
 
-    const contentDb = getFirestore(contentApp); 
-    const userDb = getFirestore(userApp);       
-    const auth = getAuth(userApp);
+    const contentDb = getFirestore(contentApp); const userDb = getFirestore(userApp); const auth = getAuth(userApp);
 
     const params = new URLSearchParams(window.location.search);
-    const seriesId = params.get('seriesId');
-    const epId = params.get('epId');
+    const seriesId = params.get('seriesId'); const epId = params.get('epId');
 
-    const video = document.getElementById('mainVideo');
-    const extAudio = document.getElementById('externalAudio');
-    const uiLayer = document.getElementById('uiLayer');
-    const playPauseBtn = document.getElementById('playPauseBtn');
-    const skipPopup = document.getElementById('skipPopup');
-    const track = document.getElementById('progressTrack');
-    const wrap = document.getElementById('playerWrap');
-    const spinner = document.getElementById('spinner');
-    const centerControls = document.querySelector('.center-controls');
-    const gInfo = document.getElementById('gestureInfo');
+    const video = document.getElementById('mainVideo'); const extAudio = document.getElementById('externalAudio');
+    const uiLayer = document.getElementById('uiLayer'); const playPauseBtn = document.getElementById('playPauseBtn');
+    const skipPopup = document.getElementById('skipPopup'); const track = document.getElementById('progressTrack');
+    const wrap = document.getElementById('playerWrap'); const spinner = document.getElementById('spinner');
     const sliderDom = document.getElementById('nextEpSlider');
 
     let videoData = null, nextEpsData = [], isLocked = false, isUiVisible = true;
     let useExtAudio = false, hlsEngine = null;
     let currentUid = null, currentProfileId = null, dbSavedTime = null, authChecked = false, isIntendedToPlay = true;
-    let autoPlayTimer = null, isSliderActive = false;
 
     // Load Local States
     let savedSpeed = parseFloat(localStorage.getItem('aniplay_speed')) || 1;
     let savedPitch = localStorage.getItem('aniplay_pitch') !== 'false';
     let savedScaleMode = parseInt(localStorage.getItem('aniplay_scale')) || 0;
+    let isAutoPlayNext = true; // Default to ON
+    let subConfig = JSON.parse(localStorage.getItem('aniplay_sub_config')) || { size: '22px', bg: 'transparent', edge: 'drop-shadow' };
 
-    let subConfig = JSON.parse(localStorage.getItem('aniplay_sub_config')) || { size: '22px', color: '#ffffff', bg: 'transparent', edge: 'drop-shadow' };
-
-    // Set Pitch explicitly across standard and prefixed properties
     video.autoplay = true;
-    const applyPitch = (state) => {
-        video.preservesPitch = state; video.mozPreservesPitch = state; video.webkitPreservesPitch = state;
-        extAudio.preservesPitch = state; extAudio.mozPreservesPitch = state; extAudio.webkitPreservesPitch = state;
-    };
+    const applyPitch = (state) => { video.preservesPitch = state; extAudio.preservesPitch = state; };
     applyPitch(savedPitch);
     if(!savedPitch) document.getElementById('pitchToggle').classList.remove('active');
 
+    // --- Autoplay DB State ---
+    window.toggleAutoPlayNext = async (e) => {
+        if(e) e.stopPropagation();
+        isAutoPlayNext = !isAutoPlayNext;
+        document.getElementById('apSwitch').classList.toggle('active', isAutoPlayNext);
+        
+        if(currentUid && currentProfileId) {
+            const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
+            setDoc(profileRef, { settings: { autoPlayNext: isAutoPlayNext } }, { merge: true }).catch(()=>{});
+        }
+    };
+
     // --- Subtitle Rendering Logic ---
     window.setSubStyle = (type, val) => {
-        subConfig[type] = val;
-        localStorage.setItem('aniplay_sub_config', JSON.stringify(subConfig));
-        
-        // Update Buttons UI
-        document.querySelectorAll(`#opt-${type} .st-btn`).forEach(b => {
-            b.classList.toggle('active', b.getAttribute('onclick').includes(val));
-        });
-
-        // Compute CSS
+        subConfig[type] = val; localStorage.setItem('aniplay_sub_config', JSON.stringify(subConfig));
+        document.querySelectorAll(`#opt-${type} .st-btn`).forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(val)));
         let shadowCSS = 'none';
         if(subConfig.edge === 'drop-shadow') shadowCSS = '0px 2px 4px rgba(0,0,0,0.9), 0px 0px 2px rgba(0,0,0,0.9)';
         if(subConfig.edge === 'outline') shadowCSS = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000';
-
-        dynamicSubStyle.innerHTML = `
-            video::cue {
-                font-size: ${subConfig.size} !important;
-                color: ${subConfig.color} !important;
-                background-color: ${subConfig.bg} !important;
-                text-shadow: ${shadowCSS} !important;
-                font-family: Arial, sans-serif !important;
-                line-height: normal !important;
-            }
-        `;
+        dynamicSubStyle.innerHTML = `video::cue { font-size: ${subConfig.size} !important; color: #ffffff !important; background-color: ${subConfig.bg} !important; text-shadow: ${shadowCSS} !important; font-family: Arial, sans-serif !important; line-height: normal !important; }`;
     };
-    
-    // Initialize Subtitle Styles
     Object.keys(subConfig).forEach(k => setSubStyle(k, subConfig[k]));
 
-    // --- 1. Auth & Data Init ---
+    // --- Auth & Data Init ---
     onAuthStateChanged(auth, async (user) => {
         if (user) {
-            currentUid = user.uid;
-            currentProfileId = sessionStorage.getItem('active_profile_id') || 'profile_0';
+            currentUid = user.uid; currentProfileId = sessionStorage.getItem('active_profile_id') || 'profile_0';
             try {
                 const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
                 const snap = await getDoc(profileRef);
-                if (snap.exists() && snap.data().continueWatching && snap.data().continueWatching[seriesId]) {
-                    const cw = snap.data().continueWatching[seriesId];
-                    if (cw.epId === epId && cw.currentTime > 0) dbSavedTime = cw.currentTime;
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if(data.settings && data.settings.autoPlayNext !== undefined) {
+                        isAutoPlayNext = data.settings.autoPlayNext;
+                        document.getElementById('apSwitch').classList.toggle('active', isAutoPlayNext);
+                    }
+                    if (data.continueWatching && data.continueWatching[seriesId] && data.continueWatching[seriesId].epId === epId) {
+                        dbSavedTime = data.continueWatching[seriesId].currentTime;
+                    }
                 }
-            } catch (err) { console.error("DB Time err:", err); }
+            } catch (err) { console.error("DB Error:", err); }
         }
         if (!authChecked) { authChecked = true; loadVideo(); }
     });
     setTimeout(() => { if (!authChecked) { authChecked = true; loadVideo(); } }, 2000);
 
-    // --- 2. Load Video Logic ---
+    // --- Load Video Logic (Optimized for Low Internet) ---
     async function loadVideo() {
-        if(!seriesId || !epId) { 
-            document.getElementById('tTitle').innerText = "URL ERROR: IDs Missing"; 
-            document.getElementById('tSub').innerText = "Please ensure the link contains both ?seriesId=...&epId=..."; 
-            return; 
-        }
-
+        if(!seriesId || !epId) return;
         try {
-            document.getElementById('tTitle').innerText = "Fetching Episode...";
             spinner.style.display = 'block';
-
             const epRef = doc(contentDb, "series", seriesId, "episodes", epId);
             const snap = await getDoc(epRef);
 
             if(snap.exists()) {
-                videoData = snap.data(); 
-                fetchNextEpisodesData(); 
-
-                const qList = document.getElementById('qualityList');
-                const aList = document.getElementById('audioList');
-                const sList = document.getElementById('subList');
+                videoData = snap.data(); fetchNextEpisodesData(); 
+                const qList = document.getElementById('qualityList'); const aList = document.getElementById('audioList'); const sList = document.getElementById('subList');
                 qList.innerHTML = ''; aList.innerHTML = '';
 
                 if (videoData.m3u8Url && videoData.m3u8Url.trim() !== "") {
                     let mainUrl = videoData.m3u8Url.trim();
                     if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                         if(hlsEngine) hlsEngine.destroy(); 
-                        hlsEngine = new Hls({ maxMaxBufferLength: 300, capLevelToPlayerSize: true }); 
-                        hlsEngine.loadSource(mainUrl); hlsEngine.attachMedia(video);
                         
+                        // --- Aggressive Buffering Optimization ---
+                        hlsEngine = new Hls({ 
+                            maxBufferLength: 180,       // Buffer up to 3 minutes ahead
+                            maxMaxBufferLength: 600,    // Absolute maximum of 10 minutes ahead
+                            backBufferLength: 300,      // KEEP 5 MINUTES of watched video in memory (smooth rewind!)
+                            maxBufferSize: 60 * 1000 * 1000, // 60MB max memory cap
+                            capLevelToPlayerSize: true, // Auto-adjust to screen size to save data
+                            startLevel: -1,             // Start in auto quality
+                            fragLoadingTimeOut: 20000,  // Higher timeout for slow connections
+                            manifestLoadingTimeOut: 20000 
+                        }); 
+                        
+                        hlsEngine.loadSource(mainUrl); hlsEngine.attachMedia(video);
                         hlsEngine.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
-                            qList.innerHTML = '<div class="bs-item active" onclick="selectHlsQuality(this, -1)">Auto</div>';
+                            qList.innerHTML = '<div class="bs-item active" onclick="selectHlsQuality(this, -1)">Auto Network</div>';
                             data.levels.forEach((lvl, i) => qList.innerHTML += `<div class="bs-item" onclick="selectHlsQuality(this, ${i})">${lvl.height}p</div>`);
                             video.play().catch(()=>{});
                         });
                         hlsEngine.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => {
                             if (data.audioTracks && data.audioTracks.length > 1) {
                                 aList.innerHTML = '';
-                                data.audioTracks.forEach((t, i) => {
-                                    aList.innerHTML += `<div class="bs-item${i===hlsEngine.audioTrack?' active':''}" onclick="selectHlsAudio(this, ${i})">${t.name || 'Audio '+(i+1)}</div>`;
-                                });
+                                data.audioTracks.forEach((t, i) => aList.innerHTML += `<div class="bs-item${i===hlsEngine.audioTrack?' active':''}" onclick="selectHlsAudio(this, ${i})">${t.name || 'Audio '+(i+1)}</div>`);
                                 useExtAudio = false; video.muted = false; 
                             } else loadDbAudios(videoData);
+                        });
+                        hlsEngine.on(Hls.Events.ERROR, (e, data) => {
+                            if (data.fatal) {
+                                switch (data.type) {
+                                    case Hls.ErrorTypes.NETWORK_ERROR: hlsEngine.startLoad(); break; // Auto-recover network drops
+                                    case Hls.ErrorTypes.MEDIA_ERROR: hlsEngine.recoverMediaError(); break;
+                                    default: hlsEngine.destroy(); break;
+                                }
+                            }
                         });
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                         video.src = mainUrl; loadDbAudios(videoData); video.play().catch(()=>{});
@@ -445,16 +447,14 @@
                     if(sources.length > 0) {
                         video.src = sources[0].url;
                         sources.forEach((s, i) => {
-                            const d = document.createElement('div'); d.className = 'bs-item' + (i===0?' active':''); 
-                            d.innerText = s.qualityName || s.quality || 'Default';
+                            const d = document.createElement('div'); d.className = 'bs-item' + (i===0?' active':''); d.innerText = s.qualityName || s.quality || 'Default';
                             d.onclick = function() { selectQuality(this, s.url); }; qList.appendChild(d);
                         });
                         video.play().catch(()=>{});
-                    } else return;
+                    }
                     loadDbAudios(videoData);
                 }
 
-                // Subtitles
                 if(videoData.subtitles && videoData.subtitles.length > 0) {
                     videoData.subtitles.forEach((sub, i) => {
                         const tr = document.createElement('track'); tr.kind = 'captions'; tr.label = sub.language || sub.name || 'Sub '+(i+1); tr.src = sub.url; video.appendChild(tr);
@@ -463,10 +463,7 @@
                     });
                 }
 
-                document.getElementById('tTitle').innerText = videoData.title || "Unknown Episode";
-                document.getElementById('tSub').innerText = videoData.description || "";
-
-                // Resume Time
+                document.getElementById('tTitle').innerText = videoData.title || "Unknown Episode"; document.getElementById('tSub').innerText = videoData.description || "";
                 let targetTime = dbSavedTime || localStorage.getItem(`vid_${epId}`);
                 if(targetTime) {
                     const st = parseFloat(targetTime);
@@ -474,188 +471,106 @@
                     if(video.readyState >= 1) applyResume(); else video.addEventListener('loadedmetadata', applyResume, { once: true });
                 }
                 setPlaybackSpeed(savedSpeed); applyScaleMode(savedScaleMode, false);
-
             }
-        } catch(error) { console.error("Load Error:", error); }
+        } catch(e) {}
     }
 
     function loadDbAudios(data) {
-        const aList = document.getElementById('audioList');
-        aList.innerHTML = ''; 
+        const aList = document.getElementById('audioList'); aList.innerHTML = ''; 
         if(data.audios && data.audios.length > 0) {
             data.audios.forEach((aud, i) => {
-                const item = document.createElement('div'); item.className = 'bs-item' + (i===0?' active':'');
-                item.innerText = aud.language || aud.name || 'External Audio ' + (i+1);
+                const item = document.createElement('div'); item.className = 'bs-item' + (i===0?' active':''); item.innerText = aud.language || aud.name || 'External Audio ' + (i+1);
                 item.onclick = function() { selectAudio(this, aud.url); }; aList.appendChild(item);
             });
             useExtAudio = true; video.muted = true; extAudio.src = data.audios[0].url; extAudio.load(); applyPitch(savedPitch);
         } else { useExtAudio = false; video.muted = false; }
     }
 
-    // --- Slider & Next Episode Logic ---
+    // --- Next Episodes & Manual Slider UI ---
     async function fetchNextEpisodesData() {
         try {
             const currentOrder = videoData.orderIndex || 0;
             const epRef = collection(contentDb, "series", seriesId, "episodes");
-            // Try fetching next sequential episodes
             const q = query(epRef, where("orderIndex", ">", currentOrder), orderBy("orderIndex", "asc"), limit(3));
             const snap = await getDocs(q);
             nextEpsData = snap.docs.map(d => ({id: d.id, ...d.data()}));
-
-            // Fallback if no sequential episodes (fetch random/start of series)
             if(nextEpsData.length === 0) {
                 const fbQ = query(epRef, orderBy("orderIndex", "asc"), limit(3));
                 const fbSnap = await getDocs(fbQ);
                 nextEpsData = fbSnap.docs.map(d => ({id: d.id, ...d.data()}));
             }
-        } catch(e) { console.error(e); }
+            buildSliderCards();
+        } catch(e) {}
     }
 
     async function markAsWatchedAndGo(targetEpId) {
         if(currentUid && currentProfileId) {
             const profileRef = doc(userDb, "users", currentUid, "profileData", currentProfileId);
-            await setDoc(profileRef, {
-                continueWatching: { [seriesId]: { epId: epId, currentTime: video.duration, duration: video.duration, timestamp: Date.now() } }
-            }, { merge: true });
+            await setDoc(profileRef, { continueWatching: { [seriesId]: { epId: epId, currentTime: video.duration, duration: video.duration, timestamp: Date.now() } } }, { merge: true });
         }
         window.location.href = `?seriesId=${seriesId}&epId=${targetEpId}`;
     }
 
     function buildSliderCards() {
-        const container = document.getElementById('sliderCardsContainer');
-        container.innerHTML = '';
+        const container = document.getElementById('sliderCardsContainer'); container.innerHTML = '';
         nextEpsData.forEach((ep, idx) => {
             const thumb = ep.thumbnail || 'https://via.placeholder.com/300x150?text=No+Image';
             const title = ep.title || `Episode ${ep.orderIndex || (idx+1)}`;
-            container.innerHTML += `
-                <div class="slider-card" id="card_${ep.id}" onclick="markAsWatchedAndGo('${ep.id}')">
-                    <img src="${thumb}" class="slider-thumb" alt="thumb">
-                    <div class="slider-title">${title}</div>
-                    <div class="slider-countdown-overlay" id="overlay_${ep.id}"><span class="countdown-text" id="count_${ep.id}">5</span></div>
-                </div>
-            `;
+            container.innerHTML += `<div class="slider-card" onclick="markAsWatchedAndGo('${ep.id}')"><img src="${thumb}" class="slider-thumb" alt="thumb"><div class="slider-title">${title}</div></div>`;
         });
     }
 
-    window.cancelAutoPlay = () => {
-        clearInterval(autoPlayTimer);
-        sliderDom.classList.remove('active');
-        isSliderActive = false;
-        document.querySelectorAll('.slider-card').forEach(c => c.classList.remove('playing'));
+    window.toggleSliderUI = (e) => {
+        if(e) e.stopPropagation();
+        if(nextEpsData.length === 0) return;
+        sliderDom.classList.toggle('active');
+        document.getElementById('sliderTrigger').style.display = sliderDom.classList.contains('active') ? 'none' : 'flex';
     };
 
-    function triggerOutroSlider() {
-        if(isSliderActive || nextEpsData.length === 0) return;
-        isSliderActive = true;
-        buildSliderCards();
-        sliderDom.classList.add('active');
-        
-        // Auto play the first card
-        let targetEp = nextEpsData[0];
-        let targetCard = document.getElementById(`card_${targetEp.id}`);
-        let targetCount = document.getElementById(`count_${targetEp.id}`);
-        targetCard.classList.add('playing');
-
-        let timeLeft = 5;
-        targetCount.innerText = timeLeft;
-        autoPlayTimer = setInterval(() => {
-            timeLeft--;
-            if(timeLeft > 0) { targetCount.innerText = timeLeft; } 
-            else { clearInterval(autoPlayTimer); markAsWatchedAndGo(targetEp.id); }
-        }, 1000);
-    }
-
-    // --- Double Tap & Tap Routing Logic ---
-    let lastTapTime = 0;
-    let lastTapX = 0;
-
+    // --- Double Tap Logic ---
+    let lastTapTime = 0, lastTapX = 0, uiToggleTimeout;
     wrap.addEventListener('click', (e) => {
-        // Prevent double tap triggers if interacting with UI directly
-        if(e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track') || e.target.closest('.next-ep-slider')) return;
-        
-        let now = Date.now();
-        let currentX = e.clientX;
-        let screenW = window.innerWidth;
-
-        // If sheet is active, a click outside should NOT close it automatically due to constraints.
-        // It relies purely on the ✕ button now. So we ignore toggling UI.
+        if(e.target.closest('.icon-btn') || e.target.closest('.bottom-sheet') || e.target.closest('.track') || e.target.closest('.next-ep-slider') || e.target.closest('.slider-trigger-btn') || e.target.closest('.autoplay-wrapper')) return;
+        let now = Date.now(), currentX = e.clientX, screenW = window.innerWidth;
         if (document.querySelector('.bottom-sheet.active')) return;
 
         if (now - lastTapTime < 300 && Math.abs(currentX - lastTapX) < 50) {
-            // Double Tap Confirmed
-            clearTimeout(uiToggleTimeout); // Prevent UI toggle
-            
-            if (currentX < screenW * 0.35) {
-                // Left Double Tap
-                triggerSkip(-10);
-                let dt = document.getElementById('dtLeft');
-                dt.classList.remove('tap-anim'); void dt.offsetWidth; dt.classList.add('tap-anim');
-            } else if (currentX > screenW * 0.65) {
-                // Right Double Tap
-                triggerSkip(10);
-                let dt = document.getElementById('dtRight');
-                dt.classList.remove('tap-anim'); void dt.offsetWidth; dt.classList.add('tap-anim');
-            } else {
-                // Center Double Tap
-                playPauseBtn.click();
-            }
-            lastTapTime = 0; // reset
+            clearTimeout(uiToggleTimeout); 
+            if (currentX < screenW * 0.35) { triggerSkip(-10); let dt = document.getElementById('dtLeft'); dt.classList.remove('tap-anim'); void dt.offsetWidth; dt.classList.add('tap-anim'); } 
+            else if (currentX > screenW * 0.65) { triggerSkip(10); let dt = document.getElementById('dtRight'); dt.classList.remove('tap-anim'); void dt.offsetWidth; dt.classList.add('tap-anim'); } 
+            else { playPauseBtn.click(); }
+            lastTapTime = 0; 
         } else {
-            // Single Tap Registered
-            lastTapTime = now;
-            lastTapX = currentX;
-            // Delay toggle to wait and see if it becomes a double tap
-            uiToggleTimeout = setTimeout(() => {
-                if(Date.now() - lastTapTime >= 300) {
-                    if(isUiVisible) hideUI(); else showUI();
-                }
-            }, 300);
+            lastTapTime = now; lastTapX = currentX;
+            uiToggleTimeout = setTimeout(() => { if(Date.now() - lastTapTime >= 300) { if(isUiVisible) hideUI(); else showUI(); } }, 300);
         }
     });
 
-    let uiToggleTimeout;
-
-    // --- Core Playback & Sync Logic ---
+    // --- Playback & Sync Logic ---
     playPauseBtn.addEventListener('click', (e) => { 
         if(e) e.stopPropagation(); 
         if(video.paused) { isIntendedToPlay = true; video.play().catch(()=>{}); if(useExtAudio && extAudio.paused) extAudio.play().catch(()=>{}); } 
         else { isIntendedToPlay = false; video.pause(); if(useExtAudio) extAudio.pause(); }
     });
 
-    video.addEventListener('play', () => { 
-        document.getElementById('playIcon').style.display='none'; document.getElementById('pauseIcon').style.display='block'; hideUI(); 
-        if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play().catch(()=>{}); 
-    });
-    
-    video.addEventListener('pause', () => { 
-        document.getElementById('playIcon').style.display='block'; document.getElementById('pauseIcon').style.display='none'; showUI(); 
-        if(useExtAudio && !isIntendedToPlay) extAudio.pause(); 
-    });
+    video.addEventListener('play', () => { document.getElementById('playIcon').style.display='none'; document.getElementById('pauseIcon').style.display='block'; hideUI(); if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play().catch(()=>{}); });
+    video.addEventListener('pause', () => { document.getElementById('playIcon').style.display='block'; document.getElementById('pauseIcon').style.display='none'; showUI(); if(useExtAudio && !isIntendedToPlay) extAudio.pause(); });
 
-    // SMOOTH AUDIO SYNC FIX (No more micro-pauses)
     video.addEventListener('timeupdate', () => {
         if (useExtAudio && !extAudio.paused && !video.paused) {
             let drift = video.currentTime - extAudio.currentTime;
-            // If drift is massive (user seeked), snap it. Otherwise alter playbackRate slightly to catch up.
-            if (Math.abs(drift) > 0.6) {
-                extAudio.currentTime = video.currentTime;
-            } else if (drift > 0.15) {
-                extAudio.playbackRate = video.playbackRate + 0.15;
-            } else if (drift < -0.15) {
-                extAudio.playbackRate = video.playbackRate - 0.15;
-            } else {
-                extAudio.playbackRate = video.playbackRate;
-            }
+            if (Math.abs(drift) > 0.6) extAudio.currentTime = video.currentTime;
+            else if (drift > 0.15) extAudio.playbackRate = video.playbackRate + 0.15;
+            else if (drift < -0.15) extAudio.playbackRate = video.playbackRate - 0.15;
+            else extAudio.playbackRate = video.playbackRate;
         }
 
         requestAnimationFrame(() => {
             const curr = video.currentTime, dur = video.duration || 1; 
             document.getElementById('progressBar').style.width = (curr / dur * 100) + '%'; 
             if(video.buffered.length) document.getElementById('bufferBar').style.width = (video.buffered.end(video.buffered.length-1)/dur*100) + '%'; 
-            document.getElementById('currTime').innerText = formatTime(curr); 
-            document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
+            document.getElementById('currTime').innerText = formatTime(curr); document.getElementById('remTime').innerText = "-" + formatTime(dur - curr); 
             
-            // Save Progress Logic
             if (Math.floor(curr) % 5 === 0 && epId && curr > 0) {
                 localStorage.setItem(`vid_${epId}`, curr);
                 if (currentUid && currentProfileId && Math.floor(curr) % 10 === 0) {
@@ -664,98 +579,55 @@
                 }
             }
             
-            // Skip Intro/Outro UI
             let showSkip = false, skipTarget = 0, btnText = "";
             if (videoData) {
-                if (videoData.introEnd && curr >= videoData.introStart && curr <= videoData.introEnd) {
-                    showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro";
-                }
-                if (videoData.outroEnd && curr >= videoData.outroStart && curr <= videoData.outroEnd) {
-                    triggerOutroSlider(); // Trigger Slider
-                } else if (curr < videoData.outroStart && isSliderActive) {
-                    cancelAutoPlay(); // Hide if seeked backwards
-                }
+                if (videoData.introEnd && curr >= videoData.introStart && curr <= videoData.introEnd) { showSkip = true; skipTarget = videoData.introEnd; btnText = "Skip Intro"; }
+                if (videoData.outroEnd && curr >= videoData.outroStart && curr <= videoData.outroEnd) { showSkip = true; skipTarget = videoData.outroEnd; btnText = "Skip Outro"; }
             }
-
-            if(showSkip && !isLocked) { 
-                skipPopup.style.display = 'block'; skipPopup.innerText = btnText;
-                skipPopup.onclick = (e) => { e.stopPropagation(); skipPopup.style.display = 'none'; video.currentTime = skipTarget; }; 
-            } else { skipPopup.style.display = 'none'; }
+            if(showSkip && !isLocked) { skipPopup.style.display = 'block'; skipPopup.innerText = btnText; skipPopup.onclick = (e) => { e.stopPropagation(); skipPopup.style.display = 'none'; video.currentTime = skipTarget; }; } else { skipPopup.style.display = 'none'; }
         });
     });
 
-    video.addEventListener('ended', () => { triggerOutroSlider(); });
+    let autoplayTriggered = false;
+    video.addEventListener('ended', () => { 
+        if(!autoplayTriggered && isAutoPlayNext && nextEpsData.length > 0) {
+            autoplayTriggered = true;
+            markAsWatchedAndGo(nextEpsData[0].id);
+        } else {
+            sliderDom.classList.add('active'); 
+            document.getElementById('sliderTrigger').style.display = 'none';
+        }
+    });
 
     video.addEventListener('waiting', () => { spinner.style.display = 'block'; if(useExtAudio) extAudio.pause(); });
     video.addEventListener('playing', () => { spinner.style.display = 'none'; if(useExtAudio && isIntendedToPlay && extAudio.paused) extAudio.play().catch(()=>{}); });
 
-    extAudio.addEventListener('waiting', () => {
-        // Prevent aggressive pausing of video, only show spinner and let audio buffer briefly
-        if(useExtAudio && isIntendedToPlay) {
-            spinner.style.display = 'block';
-            // Only force pause video if audio really struggles > 2 seconds
-            if(window.audioStruggle) clearTimeout(window.audioStruggle);
-            window.audioStruggle = setTimeout(() => { if(extAudio.readyState < 3 && !video.paused) video.pause(); }, 2000);
-        }
-    });
-
-    extAudio.addEventListener('playing', () => {
-        if(window.audioStruggle) clearTimeout(window.audioStruggle);
-        spinner.style.display = 'none';
-        if(useExtAudio && isIntendedToPlay && video.paused) video.play().catch(()=>{});
-    });
+    extAudio.addEventListener('waiting', () => { if(useExtAudio && isIntendedToPlay) { spinner.style.display = 'block'; if(window.audioStruggle) clearTimeout(window.audioStruggle); window.audioStruggle = setTimeout(() => { if(extAudio.readyState < 3 && !video.paused) video.pause(); }, 2000); } });
+    extAudio.addEventListener('playing', () => { if(window.audioStruggle) clearTimeout(window.audioStruggle); spinner.style.display = 'none'; if(useExtAudio && isIntendedToPlay && video.paused) video.play().catch(()=>{}); });
 
     video.addEventListener('ratechange', () => { if(useExtAudio) extAudio.playbackRate = video.playbackRate; });
-
-    window.triggerSkip = (amount, e) => {
-        if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); 
-        if (amount > 0) { const btn = document.getElementById('skipFwdBtn'); const txt = document.getElementById('floatRightTxt'); btn.classList.remove('rotate-fwd'); txt.classList.remove('anim-float-fwd'); void btn.offsetWidth; btn.classList.add('rotate-fwd'); txt.classList.add('anim-float-fwd'); } 
-        else { const btn = document.getElementById('skipBackBtn'); const txt = document.getElementById('floatLeftTxt'); btn.classList.remove('rotate-bwd'); txt.classList.remove('anim-float-bwd'); void btn.offsetWidth; btn.classList.add('rotate-bwd'); txt.classList.add('anim-float-bwd'); }
-    };
+    window.triggerSkip = (amount, e) => { if(e) e.stopPropagation(); if(isLocked) return; video.currentTime += amount; showUI(); if (amount > 0) { const btn = document.getElementById('skipFwdBtn'); const txt = document.getElementById('floatRightTxt'); btn.classList.remove('rotate-fwd'); txt.classList.remove('anim-float-fwd'); void btn.offsetWidth; btn.classList.add('rotate-fwd'); txt.classList.add('anim-float-fwd'); } else { const btn = document.getElementById('skipBackBtn'); const txt = document.getElementById('floatLeftTxt'); btn.classList.remove('rotate-bwd'); txt.classList.remove('anim-float-bwd'); void btn.offsetWidth; btn.classList.add('rotate-bwd'); txt.classList.add('anim-float-bwd'); } };
 
     window.toggleFullscreen = () => { if (!document.fullscreenElement) { wrap.requestFullscreen(); screen.orientation?.lock('landscape').catch(()=>{}); } else { document.exitFullscreen(); screen.orientation?.unlock(); } };
     window.togglePiP = async () => { if(document.pictureInPictureEnabled) await video.requestPictureInPicture(); };
     function applyScaleMode(index) { video.style.objectFit = ['contain', 'cover', 'fill'][index]; ['iconFit', 'iconCrop', 'iconStretch'].forEach((id, i) => document.getElementById(id).style.display = i === index ? 'block' : 'none'); }
     window.cycleScaleMode = () => { savedScaleMode = (savedScaleMode + 1) % 3; applyScaleMode(savedScaleMode); localStorage.setItem('aniplay_scale', savedScaleMode); };
 
-    window.toggleLock = () => { 
-        isLocked = !isLocked; wrap.classList.toggle('locked', isLocked); 
-        document.getElementById('unlockedIcon').style.display = isLocked ? 'none' : 'block';
-        document.getElementById('lockedIcon').style.display = isLocked ? 'block' : 'none';
-        if(isLocked) { closeAllSheets(true); showUI(); }
-    };
-    
+    window.toggleLock = () => { isLocked = !isLocked; wrap.classList.toggle('locked', isLocked); document.getElementById('unlockedIcon').style.display = isLocked ? 'none' : 'block'; document.getElementById('lockedIcon').style.display = isLocked ? 'block' : 'none'; if(isLocked) { closeAllSheets(true); showUI(); } };
     window.openSheet = (id, e) => { if(e) e.stopPropagation(); closeAllSheets(true); document.getElementById(id).classList.add('active'); };
     window.closeAllSheets = (force = false) => { if(!force) return; document.querySelectorAll('.bottom-sheet').forEach(sheet => sheet.classList.remove('active')); };
 
-    window.selectQuality = (elem, url) => { 
-        document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); 
-        if(url && video.src !== url) { const ct = video.currentTime; const p = video.paused; video.src = url; const resumeFunc = () => { try { video.currentTime = ct; } catch(e){} if(!p) video.play().catch(()=>{}); }; if(video.readyState >= 1) resumeFunc(); else video.addEventListener('loadedmetadata', resumeFunc, { once: true }); } 
-        closeAllSheets(true); 
-    };
-    
+    window.selectQuality = (elem, url) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(url && video.src !== url) { const ct = video.currentTime; const p = video.paused; video.src = url; const resumeFunc = () => { try { video.currentTime = ct; } catch(e){} if(!p) video.play().catch(()=>{}); }; if(video.readyState >= 1) resumeFunc(); else video.addEventListener('loadedmetadata', resumeFunc, { once: true }); } closeAllSheets(true); };
     window.selectHlsQuality = (elem, levelIndex) => { document.querySelectorAll('#qualityList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.currentLevel = levelIndex; closeAllSheets(true); };
     window.selectHlsAudio = (elem, trackIndex) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(hlsEngine) hlsEngine.audioTrack = trackIndex; closeAllSheets(true); };
     window.selectDbSub = (elem, trackIndex) => { document.querySelectorAll('#subList > .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'disabled'; if (trackIndex !== -1 && video.textTracks[trackIndex]) video.textTracks[trackIndex].mode = 'showing'; closeAllSheets(true); };
-    
-    window.selectAudio = (elem, url) => { 
-        document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); 
-        if(url) { useExtAudio = true; video.muted = true; extAudio.src = url; extAudio.currentTime = video.currentTime; applyPitch(savedPitch); if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } } else { useExtAudio = false; video.muted = false; extAudio.pause(); } 
-        closeAllSheets(true); 
-    };
+    window.selectAudio = (elem, url) => { document.querySelectorAll('#audioList .bs-item').forEach(el => el.classList.remove('active')); elem.classList.add('active'); if(url) { useExtAudio = true; video.muted = true; extAudio.src = url; extAudio.currentTime = video.currentTime; applyPitch(savedPitch); if(!video.paused) { isIntendedToPlay = true; extAudio.play().catch(()=>{}); } } else { useExtAudio = false; video.muted = false; extAudio.pause(); } closeAllSheets(true); };
 
     const ssSlider = document.getElementById('ssSlider'); const ssSliderFill = document.getElementById('ssSliderFill'); const ssValText = document.getElementById('ssValText');
     window.setPlaybackSpeed = (val) => { video.playbackRate = val; ssSlider.value = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); };
     ssSlider.addEventListener('input', (e) => { const val = parseFloat(e.target.value); video.playbackRate = val; updateSpeedUI(val); localStorage.setItem('aniplay_speed', val); });
     function updateSpeedUI(val) { const formatVal = val.toFixed(2) + "x"; document.getElementById('speedBtn').innerText = formatVal; ssValText.innerText = formatVal; const percentage = ((val - 0.25) / (3 - 0.25)) * 100; ssSliderFill.style.width = percentage + "%"; document.querySelectorAll('.ss-pill').forEach(pill => { const pillVal = parseFloat(pill.dataset.speed); if(pillVal === val) { pill.classList.add('active'); pill.innerText = formatVal + " ✕"; } else { pill.classList.remove('active'); pill.innerText = pillVal.toFixed(2) + "x"; } }); }
-    
-    // Pitch Toggling Implementation
-    window.togglePitch = () => { 
-        savedPitch = !savedPitch; 
-        document.getElementById('pitchToggle').classList.toggle('active', savedPitch); 
-        applyPitch(savedPitch);
-        localStorage.setItem('aniplay_pitch', savedPitch); 
-    };
+    window.togglePitch = () => { savedPitch = !savedPitch; document.getElementById('pitchToggle').classList.toggle('active', savedPitch); applyPitch(savedPitch); localStorage.setItem('aniplay_pitch', savedPitch); };
 
     let isDragging = false, dragPct = 0; const tPreview = document.getElementById('timePreview');
     function getEventX(e) { return e.touches && e.touches.length > 0 ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : e.clientX); }
@@ -767,6 +639,13 @@
     function formatTime(sec) { if (isNaN(sec)) return "00:00"; let h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0'), s = Math.floor(sec % 60).toString().padStart(2, '0'); return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`; }
 
     let timeoutId;
+    function showUI() { uiLayer.classList.remove('hidden'); wrap.style.cursor = 'default'; isUiVisible = true; document.getElementById('sliderTrigger').style.opacity = '1'; clearTimeout(timeoutId); timeoutId = setTimeout(() => { if(!video.paused && !isDragging) hideUI(); }, 3500); }
+    function hideUI() { if(!video.paused && !document.querySelector('.bottom-sheet.active')) { uiLayer.classList.add('hidden'); wrap.style.cursor = 'none'; isUiVisible = false; document.getElementById('sliderTrigger').style.opacity = '0'; } }
+
+    let lastInteractType = ''; wrap.addEventListener('touchstart', () => { lastInteractType = 'touch'; }, {passive: true}); wrap.addEventListener('mousemove', () => { if(lastInteractType !== 'touch') showUI(); });
+</script>
+</body>
+</html>timeoutId;
     function showUI() { 
         uiLayer.classList.remove('hidden'); wrap.style.cursor = 'default'; isUiVisible = true; clearTimeout(timeoutId); 
         timeoutId = setTimeout(() => { if(!video.paused && !isDragging) hideUI(); }, 3500); 
